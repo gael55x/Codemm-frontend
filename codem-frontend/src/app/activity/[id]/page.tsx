@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import Editor from "@monaco-editor/react";
 
 type Problem = {
@@ -38,6 +38,7 @@ const BACKEND_URL =
 export default function ActivityPage() {
   const params = useParams<{ id: string }>();
   const activityId = params.id;
+  const router = useRouter();
 
   const [activity, setActivity] = useState<Activity | null>(null);
   const [loading, setLoading] = useState(true);
@@ -53,7 +54,26 @@ export default function ActivityPage() {
   useEffect(() => {
     async function load() {
       try {
-        const res = await fetch(`${BACKEND_URL}/activities/${activityId}`);
+        const token = localStorage.getItem("codem-token");
+        const headers: Record<string, string> = {};
+        if (token) {
+          headers["Authorization"] = `Bearer ${token}`;
+        }
+
+        const res = await fetch(`${BACKEND_URL}/activities/${activityId}`, {
+          headers,
+        });
+
+        if (res.status === 401 || res.status === 403) {
+          // User is not authenticated or not authorized to view this activity.
+          router.push("/auth/login");
+          return;
+        }
+
+        if (!res.ok) {
+          throw new Error("Failed to load activity");
+        }
+
         const data = await res.json();
         const act = data.activity as Activity | undefined;
         if (act) {
@@ -110,8 +130,45 @@ export default function ActivityPage() {
           problemId: selectedProblem.id,
         }),
       });
-      const data: JudgeResult = await res.json();
-      setResult(data);
+
+      let data: any = null;
+      try {
+        data = await res.json();
+      } catch (parseErr) {
+        console.error("Failed to parse judge response JSON:", parseErr);
+      }
+
+      if (!res.ok || !data || typeof data !== "object") {
+        setResult({
+          success: false,
+          passedTests: [],
+          failedTests: [],
+          stdout: "",
+          stderr:
+            (data && typeof data.error === "string" && data.error) ||
+            "Failed to run judge. Please try again.",
+          executionTimeMs: 0,
+        });
+        setIsTimerRunning(false);
+        return;
+      }
+
+      const safeResult: JudgeResult = {
+        success: Boolean(data.success),
+        passedTests: Array.isArray(data.passedTests) ? data.passedTests : [],
+        failedTests: Array.isArray(data.failedTests) ? data.failedTests : [],
+        stdout: typeof data.stdout === "string" ? data.stdout : "",
+        stderr:
+          typeof data.stderr === "string"
+            ? data.stderr
+            : typeof data.error === "string"
+            ? data.error
+            : "",
+        executionTimeMs:
+          typeof data.executionTimeMs === "number" ? data.executionTimeMs : 0,
+      };
+
+      setResult(safeResult);
       setIsTimerRunning(false);
     } catch (e) {
       console.error(e);
