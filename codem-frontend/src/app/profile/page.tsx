@@ -92,6 +92,7 @@ export default function ProfilePage() {
 
   function handleLogout() {
     localStorage.removeItem("codem-token");
+    localStorage.removeItem("codem-user");
     router.push("/");
   }
 
