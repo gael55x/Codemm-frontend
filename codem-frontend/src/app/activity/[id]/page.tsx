@@ -86,6 +86,10 @@ export default function ActivityPage() {
     (p) => p.id === selectedProblemId
   );
 
+  const inferredClassName =
+    selectedProblem?.classSkeleton.match(/class\s+([A-Za-z_][A-Za-z0-9_]*)/)?.[1] ??
+    "Main";
+
   async function handleSubmit() {
     if (!selectedProblem) return;
     setSubmitting(true);
@@ -137,31 +141,32 @@ export default function ActivityPage() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-100 text-slate-900">
-      <div className="mx-auto flex max-w-6xl flex-col gap-3 px-4 py-4">
-        <header className="flex items-center justify-between gap-4 rounded-lg bg-white px-4 py-3 shadow-sm">
-          <div className="flex flex-col">
-            <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+    <div className="min-h-screen bg-white text-slate-900">
+      <div className="mx-auto flex min-h-screen max-w-6xl flex-col px-4 py-6">
+        {/* Header */}
+        <header className="mb-4 flex items-center justify-between border-b border-slate-200 pb-4">
+          <div>
+            <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
               Activity
-            </div>
-            <h1 className="text-lg font-semibold tracking-tight">
+            </p>
+            <h1 className="mt-1 text-xl font-semibold tracking-tight">
               {activity.title}
             </h1>
-            <p className="text-xs text-slate-500">
-              CodeChum-style activity with {activity.problems.length} Java OOP
-              problems.
+            <p className="mt-1 text-xs text-slate-500">
+              CodeChum-style activity with {activity.problems.length} Java OOP problems.
             </p>
           </div>
-          <div className="flex items-center gap-4">
-            <div className="rounded-full bg-slate-100 px-4 py-1 text-xs font-semibold text-emerald-700">
-              Time: {formatTime(timerSeconds)}
+          <div className="flex items-center gap-3">
+            <div className="rounded-full bg-slate-100 px-4 py-1 text-xs font-medium text-slate-700">
+              Time&nbsp;{formatTime(timerSeconds)}
             </div>
           </div>
         </header>
 
-        <main className="grid gap-3 md:grid-cols-[minmax(260px,1.5fr)_minmax(0,2.4fr)_minmax(220px,1.3fr)]">
-          {/* Left column: problems + description */}
-          <section className="flex flex-col gap-3 rounded-lg bg-white p-4 shadow-sm">
+        {/* Main layout */}
+        <main className="grid flex-1 gap-4 md:grid-cols-[minmax(240px,1.4fr)_minmax(0,2.6fr)_minmax(220px,1.4fr)]">
+          {/* Left: problems + description */}
+          <section className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-4">
             <h2 className="text-sm font-semibold text-slate-900">
               Problems
             </h2>
@@ -176,10 +181,10 @@ export default function ActivityPage() {
                     setTimerSeconds(0);
                     setIsTimerRunning(true);
                   }}
-                  className={`flex flex-col rounded-md border px-3 py-2 text-left text-sm transition ${
+                  className={`flex flex-col rounded-xl border px-3 py-2 text-left text-sm transition ${
                     selectedProblemId === p.id
-                      ? "border-emerald-500 bg-emerald-50"
-                      : "border-slate-200 bg-white hover:border-slate-400"
+                      ? "border-blue-500 bg-white shadow-sm"
+                      : "border-transparent bg-white hover:border-slate-200 hover:shadow-sm"
                   }`}
                 >
                   <span className="font-medium text-slate-900">
@@ -193,7 +198,7 @@ export default function ActivityPage() {
             </div>
 
             {selectedProblem && (
-              <div className="mt-2 space-y-2 rounded-md border border-slate-200 bg-slate-50 p-3 text-xs text-slate-800">
+              <div className="mt-2 space-y-2 rounded-xl border border-slate-200 bg-white p-3 text-xs text-slate-800">
                 <h3 className="text-sm font-semibold text-slate-900">
                   Description
                 </h3>
@@ -239,28 +244,30 @@ export default function ActivityPage() {
             )}
           </section>
 
-          {/* Middle column: editor */}
-          <section className="flex flex-col gap-3 rounded-lg bg-white p-4 shadow-sm">
-            <div className="flex items-center justify-between">
-              <h2 className="text-sm font-semibold text-slate-900">Main.java</h2>
+          {/* Middle: editor */}
+          <section className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-4">
+            <div className="flex items-center justify-between pb-1">
+              <h2 className="text-sm font-semibold text-slate-900">
+                {inferredClassName}.java
+              </h2>
               <div className="flex gap-2">
                 <button
                   onClick={handleSubmit}
                   disabled={!selectedProblem || submitting}
-                  className="rounded-md border border-slate-300 bg-white px-3 py-1 text-xs font-medium text-slate-800 shadow-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                  className="rounded-full border border-slate-300 bg-white px-3 py-1 text-xs font-medium text-slate-800 shadow-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   Run code
                 </button>
                 <button
                   onClick={handleSubmit}
                   disabled={!selectedProblem || submitting}
-                  className="rounded-md bg-emerald-500 px-4 py-1 text-xs font-semibold text-white shadow hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-60"
+                  className="rounded-full bg-blue-500 px-4 py-1 text-xs font-semibold text-white shadow-sm hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {submitting ? "Checking..." : "Check code"}
                 </button>
               </div>
             </div>
-            <div className="h-80 overflow-hidden rounded-lg border border-slate-200 bg-slate-950">
+            <div className="h-[420px] overflow-hidden rounded-xl border border-slate-200 bg-slate-950">
               <Editor
                 height="100%"
                 defaultLanguage="java"
@@ -275,9 +282,16 @@ export default function ActivityPage() {
             </div>
           </section>
 
-          {/* Right column: tests / results panel */}
-          <section className="flex flex-col gap-3 rounded-lg bg-white p-4 text-xs shadow-sm">
-            <h2 className="text-sm font-semibold text-slate-900">Tests</h2>
+          {/* Right: tests / results */}
+          <section className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-4 text-xs">
+            <div className="flex items-center justify-between">
+              <h2 className="text-sm font-semibold text-slate-900">Tests</h2>
+              {result && (
+                <span className="rounded-full bg-slate-100 px-3 py-1 font-mono text-[11px] text-slate-700">
+                  {result.executionTimeMs.toFixed(0)} ms
+                </span>
+              )}
+            </div>
             {!result && (
               <p className="text-slate-500">
                 Submit your code to see which test cases pass or fail.
@@ -294,9 +308,6 @@ export default function ActivityPage() {
                     }`}
                   >
                     {result.success ? "All tests passed" : "Tests failed"}
-                  </span>
-                  <span className="rounded-full bg-slate-100 px-3 py-1 font-mono text-[11px] text-slate-700">
-                    {result.executionTimeMs.toFixed(0)} ms
                   </span>
                 </div>
                 <div className="space-y-2">
