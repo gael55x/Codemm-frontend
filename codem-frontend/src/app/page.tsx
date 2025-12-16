@@ -168,7 +168,7 @@ export default function Home() {
         <header className={`mb-8 flex items-center justify-between border-b pb-6 ${darkMode ? "border-slate-700" : "border-slate-200"}`}>
           <div>
             <h1 className={`text-3xl font-semibold tracking-tight ${darkMode ? "text-white" : "text-slate-900"}`}>
-              Codem
+              Codemm
             </h1>
             <p className={`mt-1 text-sm ${darkMode ? "text-slate-400" : "text-slate-500"}`}>
               AI Java OOP Tutor
@@ -247,7 +247,7 @@ export default function Home() {
                   Create a new activity
                 </h2>
                 <p className={`mb-6 max-w-md text-sm ${darkMode ? "text-slate-400" : "text-slate-500"}`}>
-                  Answer a few questions to customize your Java OOP activity. Codem will generate problems with starter code and JUnit tests.
+                  Answer a few questions to customize your Java OOP activity. Codemm will generate problems with starter code and JUnit tests.
                 </p>
               </div>
             )}
