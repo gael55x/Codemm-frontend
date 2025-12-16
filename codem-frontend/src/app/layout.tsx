@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Codem",
+  title: "Codemm",
   description: "AI Java OOP Tutor",
 };
 
