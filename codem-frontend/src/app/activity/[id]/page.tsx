@@ -8,11 +8,20 @@ type Problem = {
   id: string;
   title: string;
   description: string;
-  classSkeleton: string;
-  testSuite: string;
+  // v1.0 uses starter_code, legacy uses classSkeleton
+  starter_code?: string;
+  classSkeleton?: string;
+  // v1.0 uses test_suite, legacy uses testSuite
+  test_suite?: string;
+  testSuite?: string;
   constraints: string;
-  sampleInputs: string[];
-  sampleOutputs: string[];
+  // v1.0 uses sample_inputs, legacy uses sampleInputs
+  sample_inputs?: string[];
+  sampleInputs?: string[];
+  sample_outputs?: string[];
+  sampleOutputs?: string[];
+  difficulty?: string;
+  topic_tag?: string;
 };
 
 type Activity = {
@@ -29,7 +38,12 @@ type JudgeResult = {
   failedTests: string[];
   stdout: string;
   stderr: string;
-  executionTimeMs: number;
+  executionTimeMs?: number;
+};
+
+type RunResult = {
+  stdout: string;
+  stderr: string;
 };
 
 const BACKEND_URL =
@@ -48,8 +62,9 @@ export default function ActivityPage() {
   const [code, setCode] = useState<string>("public class Solution {\n}\n");
   const [timerSeconds, setTimerSeconds] = useState(0);
   const [isTimerRunning, setIsTimerRunning] = useState(false);
-  const [result, setResult] = useState<JudgeResult | null>(null);
+  const [result, setResult] = useState<JudgeResult | RunResult | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [running, setRunning] = useState(false);
 
   useEffect(() => {
     async function load() {
@@ -81,7 +96,8 @@ export default function ActivityPage() {
           if (act.problems.length > 0) {
             const first = act.problems[0];
             setSelectedProblemId(first.id);
-            setCode(first.classSkeleton || "public class Solution {\n}\n");
+            const starterCode = first.starter_code || first.classSkeleton || "public class Solution {\n}\n";
+            setCode(starterCode);
           }
           setIsTimerRunning(true);
         }
@@ -106,9 +122,40 @@ export default function ActivityPage() {
     (p) => p.id === selectedProblemId
   );
 
+  const starterCode = selectedProblem?.starter_code || selectedProblem?.classSkeleton || "";
   const inferredClassName =
-    selectedProblem?.classSkeleton.match(/class\s+([A-Za-z_][A-Za-z0-9_]*)/)?.[1] ??
-    "Main";
+    starterCode.match(/class\s+([A-Za-z_][A-Za-z0-9_]*)/)?.[1] ?? "Main";
+
+  async function handleRun() {
+    if (!selectedProblem) return;
+    setRunning(true);
+    try {
+      const res = await fetch(`${BACKEND_URL}/run`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          code,
+          language: "java",
+        }),
+      });
+
+      const data = await res.json();
+      const runResult: RunResult = {
+        stdout: typeof data.stdout === "string" ? data.stdout : "",
+        stderr: typeof data.stderr === "string" ? data.stderr : "",
+      };
+
+      setResult(runResult);
+    } catch (e) {
+      console.error(e);
+      setResult({
+        stdout: "",
+        stderr: "Failed to run code. Please try again.",
+      });
+    } finally {
+      setRunning(false);
+    }
+  }
 
   async function handleSubmit() {
     if (!selectedProblem) return;
@@ -120,12 +167,14 @@ export default function ActivityPage() {
         headers["Authorization"] = `Bearer ${token}`;
       }
 
+      const testSuite = selectedProblem.test_suite || selectedProblem.testSuite || "";
+
       const res = await fetch(`${BACKEND_URL}/submit`, {
         method: "POST",
         headers,
         body: JSON.stringify({
           code,
-          testSuite: selectedProblem.testSuite,
+          testSuite,
           activityId,
           problemId: selectedProblem.id,
         }),
@@ -247,7 +296,8 @@ export default function ActivityPage() {
                   key={p.id}
                   onClick={() => {
                     setSelectedProblemId(p.id);
-                    setCode(p.classSkeleton || "public class Solution {\n}\n");
+                    const starterCode = p.starter_code || p.classSkeleton || "public class Solution {\n}\n";
+                    setCode(starterCode);
                     setResult(null);
                     setTimerSeconds(0);
                     setIsTimerRunning(true);
@@ -286,31 +336,37 @@ export default function ActivityPage() {
                     </p>
                   </>
                 )}
-                {(selectedProblem.sampleInputs.length > 0 ||
-                  selectedProblem.sampleOutputs.length > 0) && (
-                  <div className="grid gap-2 pt-2 text-xs sm:grid-cols-2">
-                    {selectedProblem.sampleInputs.length > 0 && (
-                      <div>
-                        <h4 className="mb-1 font-semibold text-slate-900">
-                          Sample Input
-                        </h4>
-                        <pre className="max-h-32 overflow-auto rounded border border-slate-200 bg-white p-2 font-mono text-[11px] text-slate-800">
-                          {selectedProblem.sampleInputs.join("\n")}
-                        </pre>
+                {(() => {
+                  const sampleIns = selectedProblem.sample_inputs || selectedProblem.sampleInputs || [];
+                  const sampleOuts = selectedProblem.sample_outputs || selectedProblem.sampleOutputs || [];
+                  if (sampleIns.length > 0 || sampleOuts.length > 0) {
+                    return (
+                      <div className="grid gap-2 pt-2 text-xs sm:grid-cols-2">
+                        {sampleIns.length > 0 && (
+                          <div>
+                            <h4 className="mb-1 font-semibold text-slate-900">
+                              Sample Input
+                            </h4>
+                            <pre className="max-h-32 overflow-auto rounded border border-slate-200 bg-white p-2 font-mono text-[11px] text-slate-800">
+                              {sampleIns.join("\n")}
+                            </pre>
+                          </div>
+                        )}
+                        {sampleOuts.length > 0 && (
+                          <div>
+                            <h4 className="mb-1 font-semibold text-slate-900">
+                              Sample Output
+                            </h4>
+                            <pre className="max-h-32 overflow-auto rounded border border-slate-200 bg-white p-2 font-mono text-[11px] text-slate-800">
+                              {sampleOuts.join("\n")}
+                            </pre>
+                          </div>
+                        )}
                       </div>
-                    )}
-                    {selectedProblem.sampleOutputs.length > 0 && (
-                      <div>
-                        <h4 className="mb-1 font-semibold text-slate-900">
-                          Sample Output
-                        </h4>
-                        <pre className="max-h-32 overflow-auto rounded border border-slate-200 bg-white p-2 font-mono text-[11px] text-slate-800">
-                          {selectedProblem.sampleOutputs.join("\n")}
-                        </pre>
-                      </div>
-                    )}
-                  </div>
-                )}
+                    );
+                  }
+                  return null;
+                })()}
               </div>
             )}
           </section>
@@ -323,15 +379,15 @@ export default function ActivityPage() {
               </h2>
               <div className="flex gap-2">
                 <button
-                  onClick={handleSubmit}
-                  disabled={!selectedProblem || submitting}
+                  onClick={handleRun}
+                  disabled={!selectedProblem || running || submitting}
                   className="rounded-full border border-slate-300 bg-white px-3 py-1 text-xs font-medium text-slate-800 shadow-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  Run code
+                  {running ? "Running..." : "Run code"}
                 </button>
                 <button
                   onClick={handleSubmit}
-                  disabled={!selectedProblem || submitting}
+                  disabled={!selectedProblem || submitting || running}
                   className="rounded-full bg-blue-500 px-4 py-1 text-xs font-semibold text-white shadow-sm hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {submitting ? "Checking..." : "Check code"}
@@ -356,19 +412,21 @@ export default function ActivityPage() {
           {/* Right: tests / results */}
           <section className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-4 text-xs">
             <div className="flex items-center justify-between">
-              <h2 className="text-sm font-semibold text-slate-900">Tests</h2>
-              {result && (
+              <h2 className="text-sm font-semibold text-slate-900">
+                {"success" in (result ?? {}) ? "Tests" : "Output"}
+              </h2>
+              {result && "executionTimeMs" in result && (
                 <span className="rounded-full bg-slate-100 px-3 py-1 font-mono text-[11px] text-slate-700">
-                  {result.executionTimeMs.toFixed(0)} ms
+                  {result.executionTimeMs?.toFixed(0)} ms
                 </span>
               )}
             </div>
             {!result && (
               <p className="text-slate-500">
-                Submit your code to see which test cases pass or fail.
+                Run your code or submit it to see results.
               </p>
             )}
-            {result && (
+            {result && "success" in result && (
               <>
                 <div className="flex flex-wrap items-center gap-3">
                   <span
@@ -422,6 +480,26 @@ export default function ActivityPage() {
                     Hints / Errors
                   </h3>
                   <pre className="max-h-32 overflow-auto rounded border border-slate-200 bg-rose-50/60 p-2 font-mono text-[11px] text-rose-800">
+                    {result.stderr || "(empty)"}
+                  </pre>
+                </div>
+              </>
+            )}
+            {result && !("success" in result) && (
+              <>
+                <div className="space-y-1">
+                  <h3 className="text-xs font-semibold text-slate-900">
+                    stdout
+                  </h3>
+                  <pre className="max-h-40 overflow-auto rounded border border-slate-200 bg-slate-50 p-2 font-mono text-[11px] text-slate-800">
+                    {result.stdout || "(empty)"}
+                  </pre>
+                </div>
+                <div className="space-y-1">
+                  <h3 className="text-xs font-semibold text-slate-900">
+                    stderr
+                  </h3>
+                  <pre className="max-h-40 overflow-auto rounded border border-slate-200 bg-rose-50/60 p-2 font-mono text-[11px] text-rose-800">
                     {result.stderr || "(empty)"}
                   </pre>
                 </div>
