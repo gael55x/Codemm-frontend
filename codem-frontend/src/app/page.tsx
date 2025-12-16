@@ -17,6 +17,10 @@ export default function Home() {
   const [darkMode, setDarkMode] = useState(false);
   const [user, setUser] = useState<any>(null);
 
+  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [sessionState, setSessionState] = useState<string | null>(null);
+  const [specReady, setSpecReady] = useState(false);
+
   useEffect(() => {
     const stored = localStorage.getItem("codem-theme");
     if (stored === "dark") {
@@ -29,6 +33,23 @@ export default function Home() {
     if (token && storedUser) {
       setUser(JSON.parse(storedUser));
     }
+
+    // Create a new session on mount
+    async function initSession() {
+      try {
+        const res = await fetch(`${BACKEND_URL}/sessions`, {
+          method: "POST",
+        });
+        const data = await res.json();
+        if (data.sessionId) {
+          setSessionId(data.sessionId);
+          setSessionState(data.state);
+        }
+      } catch (e) {
+        console.error("Failed to create session:", e);
+      }
+    }
+    initSession();
   }, []);
 
   const toggleDarkMode = () => {
@@ -38,30 +59,43 @@ export default function Home() {
   };
 
   async function handleChatSend() {
-    if (!chatInput.trim()) return;
+    if (!chatInput.trim() || !sessionId) return;
     const userMessage = chatInput.trim();
     setMessages((prev) => [...prev, { role: "user", content: userMessage }]);
     setChatInput("");
     setChatLoading(true);
+
     try {
-      const res = await fetch(`${BACKEND_URL}/chat`, {
+      const res = await fetch(`${BACKEND_URL}/sessions/${sessionId}/messages`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: chatInput }),
+        body: JSON.stringify({ message: userMessage }),
       });
       const data = await res.json();
-      const reply =
-        typeof data.reply === "string"
-          ? data.reply
-          : JSON.stringify(data, null, 2);
-      setMessages((prev) => [...prev, { role: "assistant", content: reply }]);
+
+      if (!data.accepted) {
+        // Answer rejected, show error + re-ask
+        const errorMsg = data.error ? `${data.error}\n\n${data.nextQuestion}` : data.nextQuestion;
+        setMessages((prev) => [
+          ...prev,
+          { role: "assistant", content: errorMsg },
+        ]);
+      } else {
+        // Answer accepted
+        setMessages((prev) => [
+          ...prev,
+          { role: "assistant", content: data.nextQuestion },
+        ]);
+        setSessionState(data.state);
+        setSpecReady(data.done === true);
+      }
     } catch (e) {
       console.error(e);
       setMessages((prev) => [
         ...prev,
         {
           role: "assistant",
-          content: "Sorry, something went wrong talking to the ProblemAgent.",
+          content: "Sorry, something went wrong processing your answer.",
         },
       ]);
     } finally {
@@ -76,10 +110,11 @@ export default function Home() {
       return;
     }
 
+    if (!sessionId || !specReady) {
+      return;
+    }
+
     setLoading(true);
-    const lastAssistant = [...messages]
-      .reverse()
-      .find((m) => m.role === "assistant");
     try {
       setMessages((prev) => [
         ...prev,
@@ -88,39 +123,43 @@ export default function Home() {
           content: "Generating activity... please wait.",
         },
       ]);
-      const res = await fetch(`${BACKEND_URL}/activities`, {
+
+      const res = await fetch(`${BACKEND_URL}/sessions/${sessionId}/generate`, {
         method: "POST",
-        headers: { 
+        headers: {
           "Content-Type": "application/json",
-          "Authorization": `Bearer ${token}`,
+          Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({
-          prompt: lastAssistant?.content ?? chatInput,
-        }),
       });
+
       const data = await res.json();
+
       if (typeof data.activityId === "string") {
         router.push(`/activity/${data.activityId}`);
       } else if (data?.error) {
         setMessages((prev) => [
           ...prev,
-          { role: "assistant", content: `Failed to generate activity: ${data.error} ${data.detail ?? ""}` },
+          {
+            role: "assistant",
+            content: `Failed to generate activity: ${data.error} ${data.detail ?? ""}`,
+          },
         ]);
       }
     } catch (e) {
       console.error(e);
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: "assistant",
+          content: "Failed to generate activity. Please try again.",
+        },
+      ]);
     } finally {
       setLoading(false);
     }
   }
 
   const isBusy = chatLoading || loading;
-
-  const presetPrompts = [
-    "Give me 5 beginner OOP problems on encapsulation with stdout checks.",
-    "Create 5 intermediate problems on inheritance and polymorphism; include sample I/O.",
-    "Generate 5 array/string parsing problems with printf-style outputs and unit tests.",
-  ];
 
   return (
     <div className={`min-h-screen transition-colors ${darkMode ? "bg-slate-900" : "bg-white"}`}>
@@ -181,7 +220,7 @@ export default function Home() {
             {!loading && (
               <button
                 onClick={handleGenerate}
-                disabled={messages.length === 0}
+                disabled={!specReady || isBusy}
                 className="rounded-full bg-blue-500 px-5 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 Generate Activity
@@ -205,28 +244,11 @@ export default function Home() {
                   <span className={`text-2xl font-bold ${darkMode ? "text-slate-500" : "text-slate-400"}`}>C</span>
                 </div>
                 <h2 className={`mb-2 text-lg font-semibold ${darkMode ? "text-white" : "text-slate-900"}`}>
-                  What would you like to create?
+                  Create a new activity
                 </h2>
                 <p className={`mb-6 max-w-md text-sm ${darkMode ? "text-slate-400" : "text-slate-500"}`}>
-                  Describe the Java OOP problems you want. Codem will generate a complete activity with class skeletons and JUnit tests.
+                  Answer a few questions to customize your Java OOP activity. Codem will generate problems with starter code and JUnit tests.
                 </p>
-                {/* Quick start buttons */}
-                <div className="flex flex-wrap justify-center gap-2">
-                  {presetPrompts.map((p) => (
-                    <button
-                      key={p}
-                      type="button"
-                      onClick={() => setChatInput(p)}
-                      className={`rounded-lg border px-4 py-2 text-xs transition ${
-                        darkMode 
-                          ? "border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700" 
-                          : "border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100"
-                      }`}
-                    >
-                      {p.length > 60 ? p.slice(0, 60) + "..." : p}
-                    </button>
-                  ))}
-                </div>
               </div>
             )}
             {messages.map((m, idx) => (
@@ -237,7 +259,7 @@ export default function Home() {
                 }`}
               >
                 <div
-                  className={`max-w-[75%] rounded-2xl px-4 py-3 text-sm leading-relaxed ${
+                  className={`max-w-[75%] rounded-2xl px-4 py-3 text-sm leading-relaxed whitespace-pre-line ${
                     m.role === "user"
                       ? "bg-blue-500 text-white shadow-sm"
                       : darkMode 
@@ -270,7 +292,7 @@ export default function Home() {
                       ? "border-slate-700 bg-slate-800 text-slate-100 placeholder-slate-500 focus:border-blue-400 focus:ring-blue-400" 
                       : "border-slate-300 bg-white text-slate-900 placeholder-slate-400 focus:border-blue-500 focus:ring-blue-500"
                   }`}
-                  placeholder="Describe your activity..."
+                  placeholder="Type your answer..."
                   rows={3}
                   value={chatInput}
                   onChange={(e) => setChatInput(e.target.value)}
@@ -280,11 +302,12 @@ export default function Home() {
                       if (chatInput.trim()) handleChatSend();
                     }
                   }}
+                  disabled={isBusy || specReady}
                 />
               </div>
               <button
                 onClick={handleChatSend}
-                disabled={chatLoading || !chatInput.trim()}
+                disabled={chatLoading || !chatInput.trim() || specReady}
                 className="flex h-12 w-12 items-center justify-center rounded-full bg-blue-500 text-white shadow-sm transition hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -292,10 +315,14 @@ export default function Home() {
                 </svg>
               </button>
             </div>
+            {specReady && (
+              <div className={`mt-3 rounded-lg px-4 py-2 text-xs ${darkMode ? "bg-emerald-900/30 text-emerald-300" : "bg-emerald-50 text-emerald-700"}`}>
+                ✓ Activity spec is ready. Click "Generate Activity" to create problems.
+              </div>
+            )}
           </div>
         </main>
       </div>
     </div>
   );
 }
-
