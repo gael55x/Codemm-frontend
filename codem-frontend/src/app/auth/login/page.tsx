@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Eye, EyeOff } from "lucide-react";
@@ -8,16 +8,26 @@ import { Eye, EyeOff } from "lucide-react";
 const BACKEND_URL =
   process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:4000";
 
+const PASSWORD_MIN_LENGTH = 8;
+
 export default function LoginPage() {
   const router = useRouter();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [passwordError, setPasswordError] = useState<string | null>(null);
+  const isPasswordValid = password.length >= PASSWORD_MIN_LENGTH && !passwordError;
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
+
+    if (!isPasswordValid) {
+      setPasswordError(`Password must be at least ${PASSWORD_MIN_LENGTH} characters`);
+      return;
+    }
+
     setLoading(true);
 
     try {
@@ -51,6 +61,18 @@ export default function LoginPage() {
     setShowPassword(!showPassword);
   };
 
+  useEffect(() => {
+    if (!password) {
+      setPasswordError(null);
+      return;
+    }
+    if (password.length < PASSWORD_MIN_LENGTH) {
+      setPasswordError(`Password must be at least ${PASSWORD_MIN_LENGTH} characters`);
+      return;
+    }
+    setPasswordError(null);
+  }, [password]);
+
   return (
     <div className="flex min-h-screen items-center justify-center bg-slate-50">
       <div className="w-full max-w-md rounded-xl border border-slate-200 bg-white p-8 shadow-sm">
@@ -80,7 +102,7 @@ export default function LoginPage() {
             />
           </div>
 
-          <div>
+          <div className="relative">
             <label
               htmlFor="password"
               className="block text-sm font-medium text-slate-700"
@@ -99,9 +121,9 @@ export default function LoginPage() {
             <button
               type="button"
               onClick={togglePasswordVisibility}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-700"
-            >
-              {showPassword ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
+              className="absolute right-3 top-[38px] -translate-y-1/2 text-black hover:text-slate-700"
+              >
+              {showPassword ? <Eye className="h-4 w-4 text-black" /> : <EyeOff className="h-4 w-4 text-black" />}
             </button>
           </div>
           
@@ -111,9 +133,15 @@ export default function LoginPage() {
             </div>
           )}
 
+          {passwordError && (
+            <div className="rounded-lg bg-red-50 p-3 text-sm text-red-600">
+              {passwordError}
+            </div>
+          )}
+
           <button
             type="submit"
-            disabled={loading}
+            disabled={loading || !isPasswordValid}
             className="w-full rounded-lg bg-blue-500 px-4 py-2 font-medium text-white hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {loading ? "Logging in..." : "Log in"}

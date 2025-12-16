@@ -1,18 +1,25 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useSpecBuilderUX } from "@/lib/specBuilderUx";
 
 const BACKEND_URL =
   process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:4000";
 
+type ChatMessage = {
+  role: "user" | "assistant";
+  content: string;
+  tone?: "question" | "hint" | "info";
+};
+
 export default function Home() {
   const router = useRouter();
+  const { normalizeUserInput, interpretResponse, formatQuestionForDisplay } =
+    useSpecBuilderUX();
   const [loading, setLoading] = useState(false);
   const [chatInput, setChatInput] = useState("");
-  const [messages, setMessages] = useState<
-    { role: "user" | "assistant"; content: string }[]
-  >([]);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [chatLoading, setChatLoading] = useState(false);
   const [darkMode, setDarkMode] = useState(false);
   const [user, setUser] = useState<any>(null);
@@ -61,7 +68,22 @@ export default function Home() {
   async function handleChatSend() {
     if (!chatInput.trim() || !sessionId) return;
     const userMessage = chatInput.trim();
-    setMessages((prev) => [...prev, { role: "user", content: userMessage }]);
+    const normalized = normalizeUserInput(userMessage);
+    const normalizedNote = normalized.notes.length
+      ? `\n${normalized.notes.join(". ")}.`
+      : "";
+
+    const outgoing: ChatMessage[] = [{ role: "user", content: userMessage }];
+
+    if (normalized.didChange) {
+      outgoing.push({
+        role: "assistant",
+        tone: "info",
+        content: `I formatted that for the builder as:\n${normalized.normalized}${normalizedNote}`,
+      });
+    }
+
+    setMessages((prev) => [...prev, ...outgoing]);
     setChatInput("");
     setChatLoading(true);
 
@@ -69,25 +91,32 @@ export default function Home() {
       const res = await fetch(`${BACKEND_URL}/sessions/${sessionId}/messages`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: userMessage }),
+        body: JSON.stringify({ message: normalized.normalized }),
       });
       const data = await res.json();
 
-      if (!data.accepted) {
-        // Answer rejected, show error + re-ask
-        const errorMsg = data.error ? `${data.error}\n\n${data.nextQuestion}` : data.nextQuestion;
+      const interpreted = interpretResponse(data);
+
+      if (interpreted.kind === "rejected") {
+        const hintContent = [interpreted.friendly, ...interpreted.hintLines]
+          .filter(Boolean)
+          .join("\n\n");
+
         setMessages((prev) => [
           ...prev,
-          { role: "assistant", content: errorMsg },
+          { role: "assistant", tone: "hint", content: hintContent },
         ]);
       } else {
-        // Answer accepted
-        setMessages((prev) => [
-          ...prev,
-          { role: "assistant", content: data.nextQuestion },
-        ]);
         setSessionState(data.state);
         setSpecReady(data.done === true);
+
+        const questionDisplay = formatQuestionForDisplay(interpreted.question);
+        if (questionDisplay) {
+          setMessages((prev) => [
+            ...prev,
+            { role: "assistant", tone: "question", content: questionDisplay },
+          ]);
+        }
       }
     } catch (e) {
       console.error(e);
@@ -95,7 +124,9 @@ export default function Home() {
         ...prev,
         {
           role: "assistant",
-          content: "Sorry, something went wrong processing your answer.",
+          tone: "hint",
+          content:
+            "Sorry, something went wrong processing your answer. Please try again in the expected format.",
         },
       ]);
     } finally {
@@ -120,6 +151,7 @@ export default function Home() {
         ...prev,
         {
           role: "assistant",
+          tone: "info",
           content: "Generating activity... please wait.",
         },
       ]);
@@ -141,6 +173,7 @@ export default function Home() {
           ...prev,
           {
             role: "assistant",
+            tone: "hint",
             content: `Failed to generate activity: ${data.error} ${data.detail ?? ""}`,
           },
         ]);
@@ -151,6 +184,7 @@ export default function Home() {
         ...prev,
         {
           role: "assistant",
+          tone: "hint",
           content: "Failed to generate activity. Please try again.",
         },
       ]);
@@ -262,11 +296,32 @@ export default function Home() {
                   className={`max-w-[75%] rounded-2xl px-4 py-3 text-sm leading-relaxed whitespace-pre-line ${
                     m.role === "user"
                       ? "bg-blue-500 text-white shadow-sm"
-                      : darkMode 
-                        ? "bg-slate-800 text-slate-100" 
-                        : "bg-slate-100 text-slate-900"
+                      : m.tone === "question"
+                        ? darkMode
+                          ? "border border-slate-700 bg-slate-800 text-slate-100"
+                          : "border border-slate-200 bg-slate-50 text-slate-900"
+                        : m.tone === "hint"
+                          ? darkMode
+                            ? "border border-amber-700/60 bg-amber-900/30 text-amber-100"
+                            : "border border-amber-200 bg-amber-50 text-amber-900"
+                          : m.tone === "info"
+                            ? darkMode
+                              ? "border border-slate-700 bg-slate-900/60 text-slate-100"
+                              : "border border-blue-100 bg-blue-50 text-slate-900"
+                            : darkMode
+                              ? "bg-slate-800 text-slate-100"
+                              : "bg-slate-100 text-slate-900"
                   }`}
                 >
+                  {m.tone && m.role === "assistant" && (
+                    <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide opacity-80">
+                      {m.tone === "question"
+                        ? "Next step"
+                        : m.tone === "hint"
+                          ? "Tutor hint"
+                          : "Note"}
+                    </div>
+                  )}
                   {m.content}
                 </div>
               </div>
