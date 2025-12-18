@@ -215,10 +215,35 @@ export default function ActivityPage() {
         }),
       });
 
-      const data = await res.json();
+      let data: any = null;
+      try {
+        data = await res.json();
+      } catch (parseErr) {
+        data = null;
+      }
+
+      if (!res.ok) {
+        const message =
+          (data && typeof data.error === "string" && data.error) ||
+          (data && typeof data.detail === "string" && data.detail) ||
+          `Failed to run code (HTTP ${res.status}).`;
+        setResult({ stdout: "", stderr: message });
+        return;
+      }
+
+      if (!data || typeof data !== "object") {
+        setResult({ stdout: "", stderr: "Failed to run code (invalid response)." });
+        return;
+      }
+
       const runResult: RunResult = {
         stdout: typeof data.stdout === "string" ? data.stdout : "",
-        stderr: typeof data.stderr === "string" ? data.stderr : "",
+        stderr:
+          typeof data.stderr === "string"
+            ? data.stderr
+            : typeof data.error === "string"
+            ? data.error
+            : "",
       };
 
       setResult(runResult);
