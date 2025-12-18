@@ -46,8 +46,26 @@ type RunResult = {
   stderr: string;
 };
 
+type JavaFiles = Record<string, string>;
+
 const BACKEND_URL =
   process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:4000";
+
+function hasJavaMainMethod(source: string): boolean {
+  const withoutBlockComments = source.replace(/\/\*[\s\S]*?\*\//g, "");
+  const withoutLineComments = withoutBlockComments.replace(/\/\/.*$/gm, "");
+  return /public\s+static\s+void\s+main\s*\(\s*(?:final\s+)?String\s*(?:(?:\[\s*\]|\.\.\.)\s*\w+|\w+\s*\[\s*\])\s*\)/.test(
+    withoutLineComments
+  );
+}
+
+function inferJavaClassName(source: string, fallback: string): string {
+  return source.match(/class\s+([A-Za-z_][A-Za-z0-9_]*)/)?.[1] ?? fallback;
+}
+
+function buildMainJavaTemplate(primaryClassName: string): string {
+  return `public class Main {\n    public static void main(String[] args) {\n        // Manual sandbox for debugging.\n        // Example (edit this):\n        // ${primaryClassName} obj = new ${primaryClassName}(/* TODO */);\n        // System.out.println(obj);\n        System.out.println("Main running. Edit Main.java to debug your solution.");\n    }\n}\n`;
+}
 
 export default function ActivityPage() {
   const params = useParams<{ id: string }>();
@@ -59,12 +77,17 @@ export default function ActivityPage() {
   const [selectedProblemId, setSelectedProblemId] = useState<string | null>(
     null
   );
-  const [code, setCode] = useState<string>("public class Solution {\n}\n");
+  const [files, setFiles] = useState<JavaFiles>({
+    "Solution.java": "public class Solution {\n}\n",
+    "Main.java": buildMainJavaTemplate("Solution"),
+  });
+  const [activeFilename, setActiveFilename] = useState<string>("Solution.java");
   const [timerSeconds, setTimerSeconds] = useState(0);
   const [isTimerRunning, setIsTimerRunning] = useState(false);
   const [result, setResult] = useState<JudgeResult | RunResult | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [running, setRunning] = useState(false);
+  const [showTests, setShowTests] = useState(false);
 
   useEffect(() => {
     async function load() {
@@ -97,7 +120,13 @@ export default function ActivityPage() {
             const first = act.problems[0];
             setSelectedProblemId(first.id);
             const starterCode = first.starter_code || first.classSkeleton || "public class Solution {\n}\n";
-            setCode(starterCode);
+            const primaryClassName = inferJavaClassName(starterCode, "Solution");
+            const primaryFilename = `${primaryClassName}.java`;
+            setFiles({
+              [primaryFilename]: starterCode,
+              "Main.java": buildMainJavaTemplate(primaryClassName),
+            });
+            setActiveFilename(primaryFilename);
           }
           setIsTimerRunning(true);
         }
@@ -122,19 +151,32 @@ export default function ActivityPage() {
     (p) => p.id === selectedProblemId
   );
 
-  const starterCode = selectedProblem?.starter_code || selectedProblem?.classSkeleton || "";
-  const inferredClassName =
-    starterCode.match(/class\s+([A-Za-z_][A-Za-z0-9_]*)/)?.[1] ?? "Main";
+  const starterCode =
+    selectedProblem?.starter_code || selectedProblem?.classSkeleton || "";
+  const testSuite = selectedProblem?.test_suite || selectedProblem?.testSuite || "";
+  const testCount = (testSuite.match(/@Test\b/g) ?? []).length;
+  const activeCode = files[activeFilename] ?? "";
+  const mainSource = files["Main.java"] ?? "";
+  const canRunMain = hasJavaMainMethod(mainSource);
 
   async function handleRun() {
     if (!selectedProblem) return;
+    if (!canRunMain) {
+      setResult({
+        stdout: "",
+        stderr:
+          'No `public static void main(String[] args)` detected in Main.java.\n\nThis activity is primarily graded by JUnit tests. Use "Run tests" to see pass/fail, or add a main() method in Main.java if you want to print/debug locally.',
+      });
+      return;
+    }
     setRunning(true);
     try {
       const res = await fetch(`${BACKEND_URL}/run`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          code,
+          files,
+          mainClass: "Main",
           language: "java",
         }),
       });
@@ -157,7 +199,7 @@ export default function ActivityPage() {
     }
   }
 
-  async function handleSubmit() {
+  async function handleRunTests() {
     if (!selectedProblem) return;
     setSubmitting(true);
     try {
@@ -168,12 +210,15 @@ export default function ActivityPage() {
       }
 
       const testSuite = selectedProblem.test_suite || selectedProblem.testSuite || "";
+      const filesForTests = Object.fromEntries(
+        Object.entries(files).filter(([filename]) => filename !== "Main.java")
+      );
 
       const res = await fetch(`${BACKEND_URL}/submit`, {
         method: "POST",
         headers,
         body: JSON.stringify({
-          code,
+          files: filesForTests,
           testSuite,
           activityId,
           problemId: selectedProblem.id,
@@ -234,6 +279,29 @@ export default function ActivityPage() {
     return `${m}:${s}`;
   }
 
+  function handleAddFile() {
+    const raw = window.prompt('New file name (e.g., "Helper.java")');
+    if (!raw) return;
+    const name = raw.trim();
+    if (!/^[A-Za-z_][A-Za-z0-9_]*\.java$/.test(name)) {
+      setResult({
+        stdout: "",
+        stderr:
+          'Invalid filename. Use something like "Helper.java" (letters/numbers/underscore, must end with .java).',
+      });
+      return;
+    }
+    if (Object.prototype.hasOwnProperty.call(files, name)) {
+      setActiveFilename(name);
+      return;
+    }
+    const className = name.replace(/\.java$/i, "");
+    const skeleton = `public class ${className} {\n\n}\n`;
+    setFiles((prev) => ({ ...prev, [name]: skeleton }));
+    setActiveFilename(name);
+    setResult(null);
+  }
+
   if (loading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-slate-100 text-slate-900">
@@ -256,7 +324,7 @@ export default function ActivityPage() {
 
   return (
     <div className="min-h-screen bg-white text-slate-900">
-      <div className="mx-auto flex min-h-screen max-w-6xl flex-col px-4 py-6">
+      <div className="mx-auto flex min-h-screen max-w-7xl flex-col px-4 py-6">
         {/* Header */}
         <header className="mb-4 flex items-center justify-between border-b border-slate-200 pb-4">
           <div>
@@ -284,7 +352,7 @@ export default function ActivityPage() {
         </header>
 
         {/* Main layout */}
-        <main className="grid flex-1 gap-4 md:grid-cols-[minmax(240px,1.4fr)_minmax(0,2.6fr)_minmax(220px,1.4fr)]">
+        <main className="grid flex-1 gap-4 md:grid-cols-[minmax(220px,1.1fr)_minmax(0,3.2fr)_minmax(220px,1.3fr)]">
           {/* Left: problems + description */}
           <section className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-4">
             <h2 className="text-sm font-semibold text-slate-900">
@@ -297,8 +365,15 @@ export default function ActivityPage() {
                   onClick={() => {
                     setSelectedProblemId(p.id);
                     const starterCode = p.starter_code || p.classSkeleton || "public class Solution {\n}\n";
-                    setCode(starterCode);
+                    const primaryClassName = inferJavaClassName(starterCode, "Solution");
+                    const primaryFilename = `${primaryClassName}.java`;
+                    setFiles({
+                      [primaryFilename]: starterCode,
+                      "Main.java": buildMainJavaTemplate(primaryClassName),
+                    });
+                    setActiveFilename(primaryFilename);
                     setResult(null);
+                    setShowTests(false);
                     setTimerSeconds(0);
                     setIsTimerRunning(true);
                   }}
@@ -371,64 +446,127 @@ export default function ActivityPage() {
             )}
           </section>
 
-          {/* Middle: editor */}
-          <section className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-4">
-            <div className="flex items-center justify-between pb-1">
-              <h2 className="text-sm font-semibold text-slate-900">
-                {inferredClassName}.java
-              </h2>
-              <div className="flex gap-2">
-                <button
-                  onClick={handleRun}
-                  disabled={!selectedProblem || running || submitting}
-                  className="rounded-full border border-slate-300 bg-white px-3 py-1 text-xs font-medium text-slate-800 shadow-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  {running ? "Running..." : "Run code"}
-                </button>
-                <button
-                  onClick={handleSubmit}
-                  disabled={!selectedProblem || submitting || running}
-                  className="rounded-full bg-blue-500 px-4 py-1 text-xs font-semibold text-white shadow-sm hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  {submitting ? "Checking..." : "Check code"}
-                </button>
-              </div>
-            </div>
-            <div className="h-[420px] overflow-hidden rounded-xl border border-slate-200 bg-slate-950">
-              <Editor
-                height="100%"
-                defaultLanguage="java"
-                value={code}
-                onChange={(value) => setCode(value ?? "")}
-                theme="vs-dark"
-                options={{
-                  fontSize: 14,
-                  minimap: { enabled: false },
-                }}
+		          {/* Middle: editor */}
+		          <section className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-4">
+		            <div className="flex flex-wrap items-center justify-between gap-2 pb-1">
+		              <div className="flex flex-wrap items-center gap-2">
+		                {Object.keys(files).map((filename) => (
+		                  <button
+		                    key={filename}
+		                    onClick={() => setActiveFilename(filename)}
+		                    className={`rounded-full border px-3 py-1 text-xs font-medium shadow-sm transition ${
+		                      activeFilename === filename
+		                        ? "border-blue-500 bg-blue-50 text-blue-800"
+		                        : "border-slate-300 bg-white text-slate-800 hover:bg-slate-50"
+		                    }`}
+		                  >
+		                    {filename}
+		                  </button>
+		                ))}
+		                <button
+		                  onClick={handleAddFile}
+		                  disabled={!selectedProblem}
+		                  className="rounded-full border border-slate-300 bg-white px-3 py-1 text-xs font-medium text-slate-800 shadow-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+		                >
+		                  + File
+		                </button>
+		              </div>
+		              <div className="flex gap-2">
+		                <button
+		                  onClick={handleRun}
+		                  disabled={!selectedProblem || running || submitting || !canRunMain}
+		                  title={
+		                    canRunMain
+		                      ? "Runs Main.java"
+		                      : "Requires public static void main(String[] args) in Main.java"
+		                  }
+		                  className="rounded-full border border-slate-300 bg-white px-3 py-1 text-xs font-medium text-slate-800 shadow-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+		                >
+		                  {running ? "Running..." : "Run (Main.java)"}
+		                </button>
+		                <button
+		                  onClick={handleRunTests}
+		                  disabled={!selectedProblem || submitting || running}
+		                  className="rounded-full bg-blue-500 px-4 py-1 text-xs font-semibold text-white shadow-sm hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-60"
+	                >
+	                  {submitting ? "Running..." : "Run tests"}
+	                </button>
+	                <button
+	                  onClick={() => setShowTests((v) => !v)}
+	                  disabled={!selectedProblem || !testSuite}
+	                  className="rounded-full border border-slate-300 bg-white px-3 py-1 text-xs font-medium text-slate-800 shadow-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+	                >
+	                  {showTests ? "Hide tests" : "View tests"}
+	                </button>
+		              </div>
+		            </div>
+		            {selectedProblem && !canRunMain && (
+		              <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+		                No <span className="font-mono">main()</span> method detected in{" "}
+		                <span className="font-mono">Main.java</span>. Use{" "}
+		                <span className="font-semibold">Run tests</span>, or add{" "}
+		                <span className="font-mono">public static void main(String[] args)</span> to{" "}
+		                <span className="font-mono">Main.java</span>.
+		              </div>
+		            )}
+	            <div className="h-[70vh] min-h-[520px] max-h-[calc(100vh-220px)] overflow-hidden rounded-xl border border-slate-200 bg-slate-950">
+	              <Editor
+	                height="100%"
+	                defaultLanguage="java"
+	                value={activeCode}
+	                onChange={(value) => {
+	                  const next = value ?? "";
+	                  setFiles((prev) => ({ ...prev, [activeFilename]: next }));
+	                }}
+	                theme="vs-dark"
+	                options={{
+	                  fontSize: 14,
+	                  minimap: { enabled: false },
+	                }}
               />
             </div>
           </section>
 
-          {/* Right: tests / results */}
-          <section className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-4 text-xs">
-            <div className="flex items-center justify-between">
-              <h2 className="text-sm font-semibold text-slate-900">
-                {"success" in (result ?? {}) ? "Tests" : "Output"}
-              </h2>
-              {result && "executionTimeMs" in result && (
-                <span className="rounded-full bg-slate-100 px-3 py-1 font-mono text-[11px] text-slate-700">
-                  {result.executionTimeMs?.toFixed(0)} ms
-                </span>
-              )}
-            </div>
-            {!result && (
-              <p className="text-slate-500">
-                Run your code or submit it to see results.
-              </p>
-            )}
-            {result && "success" in result && (
-              <>
-                <div className="flex flex-wrap items-center gap-3">
+	          {/* Right: tests / results */}
+	          <section className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-4 text-xs">
+	            <div className="flex items-center justify-between">
+	              <h2 className="text-sm font-semibold text-slate-900">
+	                Results
+	              </h2>
+	              {result && "executionTimeMs" in result && (
+	                <span className="rounded-full bg-slate-100 px-3 py-1 font-mono text-[11px] text-slate-700">
+	                  {result.executionTimeMs?.toFixed(0)} ms
+	                </span>
+	              )}
+	            </div>
+	            {showTests && testSuite && (
+	              <div className="space-y-2 rounded-xl border border-slate-200 bg-slate-50 p-3">
+	                <div className="flex items-center justify-between">
+	                  <h3 className="text-xs font-semibold text-slate-900">
+	                    Test suite ({testCount} {testCount === 1 ? "test" : "tests"})
+	                  </h3>
+	                  <button
+	                    onClick={() => setShowTests(false)}
+	                    className="rounded-full border border-slate-300 bg-white px-3 py-1 text-[11px] font-medium text-slate-800 hover:bg-slate-50"
+	                  >
+	                    Hide
+	                  </button>
+	                </div>
+	                <pre className="max-h-56 overflow-auto rounded border border-slate-200 bg-white p-2 font-mono text-[11px] text-slate-800">
+	                  {testSuite}
+	                </pre>
+	              </div>
+	            )}
+		            {!result && (
+		              <p className="text-slate-500">
+		                Use <span className="font-semibold">Run tests</span> to see pass/fail.{" "}
+		                <span className="font-semibold">Run (Main.java)</span> runs whatever you put in{" "}
+		                <span className="font-mono">Main.java</span>.
+		              </p>
+		            )}
+	            {result && "success" in result && (
+	              <>
+	                <div className="flex flex-wrap items-center gap-3">
                   <span
                     className={`rounded-full px-3 py-1 text-xs font-semibold ${
                       result.success
@@ -467,24 +605,24 @@ export default function ActivityPage() {
                     </ul>
                   </div>
                 </div>
-                <div className="space-y-1 pt-2">
-                  <h3 className="text-xs font-semibold text-slate-900">
-                    Output
-                  </h3>
-                  <pre className="max-h-32 overflow-auto rounded border border-slate-200 bg-slate-50 p-2 font-mono text-[11px] text-slate-800">
-                    {result.stdout || "(empty)"}
-                  </pre>
-                </div>
-                <div className="space-y-1">
-                  <h3 className="text-xs font-semibold text-slate-900">
-                    Hints / Errors
-                  </h3>
-                  <pre className="max-h-32 overflow-auto rounded border border-slate-200 bg-rose-50/60 p-2 font-mono text-[11px] text-rose-800">
-                    {result.stderr || "(empty)"}
-                  </pre>
-                </div>
-              </>
-            )}
+	                <div className="space-y-1 pt-2">
+	                  <h3 className="text-xs font-semibold text-slate-900">
+	                    stdout
+	                  </h3>
+	                  <pre className="max-h-32 overflow-auto rounded border border-slate-200 bg-slate-50 p-2 font-mono text-[11px] text-slate-800">
+	                    {result.stdout || "(empty)"}
+	                  </pre>
+	                </div>
+	                <div className="space-y-1">
+	                  <h3 className="text-xs font-semibold text-slate-900">
+	                    stderr
+	                  </h3>
+	                  <pre className="max-h-32 overflow-auto rounded border border-slate-200 bg-rose-50/60 p-2 font-mono text-[11px] text-rose-800">
+	                    {result.stderr || "(empty)"}
+	                  </pre>
+	                </div>
+	              </>
+	            )}
             {result && !("success" in result) && (
               <>
                 <div className="space-y-1">
@@ -511,5 +649,3 @@ export default function ActivityPage() {
     </div>
   );
 }
-
-
