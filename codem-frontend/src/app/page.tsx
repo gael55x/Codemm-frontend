@@ -112,6 +112,18 @@ export default function Home() {
     return "Queued";
   }
 
+  function renderProblemPercent(p: ProblemProgress): number {
+    if (p.phase === "validated") return 100;
+    if (p.phase === "failed") return 100;
+    if (p.phase === "queued") return 0;
+    if (p.phase === "validating") return 66;
+    if (p.phase === "generating") return 33;
+    if (p.phase === "retrying") {
+      return p.lastFailure === "validation" ? 66 : 33;
+    }
+    return 0;
+  }
+
   async function handleChatSend() {
     if (!sessionId) return;
 
@@ -457,82 +469,6 @@ export default function Home() {
         {/* Clean chat area */}
         <main className="flex flex-1 flex-col">
           <div className="mb-4 flex-1 space-y-4 overflow-y-auto">
-            {loading && (
-              <div
-                className={`rounded-2xl border px-4 py-3 text-sm ${
-                  darkMode
-                    ? "border-slate-700 bg-slate-900/40 text-slate-100"
-                    : "border-slate-200 bg-white text-slate-900"
-                }`}
-              >
-                <div className="mb-2 flex items-center justify-between">
-                  <div className="text-[11px] font-semibold uppercase tracking-wide opacity-80">
-                    Generation progress
-                  </div>
-                </div>
-                {progressHint && (
-                  <div
-                    className={`mb-2 rounded-lg px-3 py-2 text-[11px] ${
-                      darkMode
-                        ? "bg-amber-900/30 text-amber-200"
-                        : "bg-amber-50 text-amber-900"
-                    }`}
-                  >
-                    {progressHint}
-                  </div>
-                )}
-                {progress ? (
-                  <>
-                    <div className="mb-3">
-                      <div className="mb-1 flex items-center justify-between text-[11px] opacity-80">
-                        <div>Overall progress</div>
-                        <div>{renderOverallPercent(progress)}%</div>
-                      </div>
-                      <div
-                        className={`h-2 w-full overflow-hidden rounded-full ${
-                          darkMode ? "bg-slate-800" : "bg-slate-100"
-                        }`}
-                      >
-                        <div
-                          className="h-full rounded-full bg-blue-500 transition-[width] duration-300"
-                          style={{ width: `${renderOverallPercent(progress)}%` }}
-                        />
-                      </div>
-                    </div>
-
-                    {progress.error && (
-                      <div
-                        className={`mb-3 rounded-lg px-3 py-2 text-[11px] ${
-                          darkMode ? "bg-rose-900/30 text-rose-200" : "bg-rose-50 text-rose-900"
-                        }`}
-                      >
-                        {progress.error}
-                      </div>
-                    )}
-
-                    <div
-                      className={`space-y-1 rounded-lg border p-2 text-[12px] ${
-                        darkMode
-                          ? "border-slate-700 bg-slate-950 text-slate-200"
-                          : "border-slate-200 bg-slate-50 text-slate-800"
-                      }`}
-                    >
-                      {progress.problems.map((p, i) => (
-                        <div key={i} className="flex items-center justify-between gap-3">
-                          <div className="truncate">
-                            Problem {i + 1}/{progress.totalProblems}
-                            {p.difficulty ? ` — ${p.difficulty}` : ""}
-                          </div>
-                          <div className="shrink-0 opacity-80">{renderProblemStatus(p)}</div>
-                        </div>
-                      ))}
-                    </div>
-                  </>
-                ) : (
-                  <div className="opacity-70">Waiting for progress events…</div>
-                )}
-              </div>
-            )}
             {messages.length === 0 && (
               <div className="flex flex-col items-center justify-center py-12 text-center">
                 <div className={`mb-3 flex h-16 w-16 items-center justify-center rounded-full ${darkMode ? "bg-slate-800" : "bg-slate-100"}`}>
@@ -589,6 +525,102 @@ export default function Home() {
                     </div>
                   )}
                   {m.content}
+                  {loading &&
+                    m.role === "assistant" &&
+                    m.tone === "info" &&
+                    m.content.trim() === "Generating activity... please wait." && (
+                      <div className="mt-3 space-y-2">
+                        {progressHint && (
+                          <div
+                            className={`rounded-lg px-3 py-2 text-[11px] ${
+                              darkMode
+                                ? "bg-amber-900/30 text-amber-200"
+                                : "bg-amber-50 text-amber-900"
+                            }`}
+                          >
+                            {progressHint}
+                          </div>
+                        )}
+
+                        {progress ? (
+                          <>
+                            <div className="space-y-1">
+                              <div className="flex items-center justify-between text-[11px] opacity-80">
+                                <div>Overall progress</div>
+                                <div>{renderOverallPercent(progress)}%</div>
+                              </div>
+                              <div
+                                className={`h-2 w-full overflow-hidden rounded-full ${
+                                  darkMode ? "bg-slate-800" : "bg-slate-100"
+                                }`}
+                              >
+                                <div
+                                  className="h-full rounded-full bg-blue-500 transition-[width] duration-300"
+                                  style={{ width: `${renderOverallPercent(progress)}%` }}
+                                />
+                              </div>
+                            </div>
+
+                            {progress.error && (
+                              <div
+                                className={`rounded-lg px-3 py-2 text-[11px] ${
+                                  darkMode
+                                    ? "bg-rose-900/30 text-rose-200"
+                                    : "bg-rose-50 text-rose-900"
+                                }`}
+                              >
+                                {progress.error}
+                              </div>
+                            )}
+
+                            <div
+                              className={`space-y-2 rounded-xl border p-3 ${
+                                darkMode
+                                  ? "border-slate-700 bg-slate-950/40"
+                                  : "border-slate-200 bg-white/40"
+                              }`}
+                            >
+                              {progress.problems.map((p, i) => {
+                                const percent = renderProblemPercent(p);
+                                const active = p.phase === "generating" || p.phase === "validating" || p.phase === "retrying";
+                                return (
+                                  <div key={i} className="space-y-1">
+                                    <div className="flex items-center justify-between gap-3 text-[12px]">
+                                      <div className={`truncate ${active ? "font-medium" : ""}`}>
+                                        Problem {i + 1}/{progress.totalProblems}
+                                        {p.difficulty ? ` — ${p.difficulty}` : ""}
+                                      </div>
+                                      <div className={`shrink-0 tabular-nums ${active ? "animate-pulse" : "opacity-80"}`}>
+                                        {percent}%
+                                      </div>
+                                    </div>
+                                    <div className="flex items-center justify-between gap-3 text-[11px] opacity-80">
+                                      <div className={`truncate ${active ? "animate-pulse" : ""}`}>
+                                        {renderProblemStatus(p)}
+                                      </div>
+                                    </div>
+                                    <div
+                                      className={`h-1.5 w-full overflow-hidden rounded-full ${
+                                        darkMode ? "bg-slate-800" : "bg-slate-200"
+                                      }`}
+                                    >
+                                      <div
+                                        className={`h-full rounded-full transition-[width] duration-300 ${
+                                          p.phase === "failed" ? "bg-rose-500" : "bg-emerald-500"
+                                        }`}
+                                        style={{ width: `${percent}%` }}
+                                      />
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </>
+                        ) : (
+                          <div className="text-[11px] opacity-70">Waiting for progress events…</div>
+                        )}
+                      </div>
+                    )}
                 </div>
               </div>
             ))}
