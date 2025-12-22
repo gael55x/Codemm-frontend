@@ -495,7 +495,7 @@ export default function ActivityPage() {
               {activity.title}
             </h1>
             <p className="mt-1 text-xs text-slate-500">
-              CodeChum-style activity with {activity.problems.length} coding problems.
+              Practice activity with {activity.problems.length} problems.
             </p>
           </div>
           <div className="flex items-center gap-3">

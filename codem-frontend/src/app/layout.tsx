@@ -3,7 +3,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "Codemm",
-  description: "Deterministic programming practice generator",
+  description: "AI coding activity generator",
 };
 
 export default function RootLayout({

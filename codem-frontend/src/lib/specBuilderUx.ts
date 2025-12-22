@@ -121,7 +121,7 @@ const SPEC_SLOTS: SpecSlot[] = [
   {
     key: "topic_tags",
     intent: "What should the problems focus on?",
-    examples: ["encapsulation, inheritance, polymorphism"],
+    examples: ["arrays, recursion, hash maps"],
   },
   {
     key: "problem_count",
