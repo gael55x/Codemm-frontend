@@ -292,14 +292,14 @@ export default function ActivityPage() {
 
   async function handleRun() {
     if (!selectedProblem) return;
-    if (!canRunMain) {
-      setResult({
-        stdout: "",
-        stderr:
-          `No \`public static void main(String[] args)\` detected in ${entryFile}.\n\nThis activity is primarily graded by JUnit tests. Use "Run tests" to see pass/fail, or add a main() method in the entry file if you want to print/debug locally.`,
-      });
-      return;
-    }
+      if (!canRunMain) {
+        setResult({
+          stdout: "",
+          stderr:
+          `No \`public static void main(String[] args)\` detected in ${entryFile}.\n\nThis activity is graded by unit tests. Use "Run tests" to see pass/fail, or add a main() method in the entry file if you want to print/debug locally.`,
+        });
+        return;
+      }
     setRunning(true);
     try {
       const res = await fetch(`${BACKEND_URL}/run`, {
@@ -495,7 +495,7 @@ export default function ActivityPage() {
               {activity.title}
             </h1>
             <p className="mt-1 text-xs text-slate-500">
-              CodeChum-style activity with {activity.problems.length} Java OOP problems.
+              CodeChum-style activity with {activity.problems.length} coding problems.
             </p>
           </div>
           <div className="flex items-center gap-3">
