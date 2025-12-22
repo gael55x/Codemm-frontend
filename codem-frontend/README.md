@@ -11,8 +11,4 @@ npm run dev
 
 Open `http://localhost:3000`.
 
-## SpecBuilder UX
 
-The SpecBuilder chat uses backend `questionKey` values (e.g. `goal:content`, `confirm:topic_tags`, `invalid:difficulty_plan`) to keep the dialogue deterministic and goal-driven instead of relying on parsing question text.
-
-Backend diagrams + contracts live in `Codem-backend/AGENTIC_PLATFORM.md`.
