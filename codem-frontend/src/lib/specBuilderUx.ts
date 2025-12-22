@@ -78,7 +78,7 @@ function humanizeSpecError(err: string, slot?: SpecSlot | null): { friendly: str
 
   if (slot?.key === "constraints" || lower.includes("junit") || lower.includes("package")) {
     return {
-      friendly: "I'll handle the Java/JUnit setup automatically.",
+      friendly: "I'll handle the language runtime and test setup automatically.",
       hints: ["You can just say 'ok' or 'go ahead' here."],
     };
   }
@@ -145,7 +145,7 @@ const SPEC_SLOTS: SpecSlot[] = [
   },
   {
     key: "constraints",
-    intent: "I’ll handle the Java/JUnit setup. Anything else you want noted?",
+    intent: "I’ll handle the runtime + test setup. Any constraints you want noted?",
     examples: ["ok", "that's fine", "any"],
   },
 ];

@@ -410,7 +410,7 @@ export default function Home() {
               Codemm
             </h1>
             <p className={`mt-1 text-sm ${darkMode ? "text-slate-400" : "text-slate-500"}`}>
-              AI Java OOP Tutor
+              Deterministic programming practice generator
             </p>
           </div>
           <div className="flex items-center gap-3">
@@ -486,7 +486,7 @@ export default function Home() {
                   Create a new activity
                 </h2>
                 <p className={`mb-6 max-w-md text-sm ${darkMode ? "text-slate-400" : "text-slate-500"}`}>
-                  Answer a few questions to customize your Java OOP activity. Codemm will generate problems with starter code and JUnit tests.
+                  Answer a few questions to customize your practice activity. Codemm will generate problems with starter code and tests.
                 </p>
                 {formatSlotPrompt(activeSlot) && (
                   <p className={`text-sm ${darkMode ? "text-slate-300" : "text-slate-700"}`}>
