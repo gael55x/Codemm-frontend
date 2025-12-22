@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import Editor from "@monaco-editor/react";
 
 type Problem = {
+  language?: "java" | "python";
   id: string;
   title: string;
   description: string;
@@ -52,10 +53,14 @@ type RunResult = {
   stderr: string;
 };
 
-type JavaFiles = Record<string, string>;
+type CodeFiles = Record<string, string>;
 
 const BACKEND_URL =
   process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:4000";
+
+function getProblemLanguage(p: Problem | null | undefined): "java" | "python" {
+  return p?.language === "python" ? "python" : "java";
+}
 
 function stripAnsi(text: string): string {
   return text.replace(/\u001b\[[0-9;]*m/g, "");
@@ -151,6 +156,18 @@ function buildMainJavaTemplate(primaryClassName: string): string {
   return `public class Main {\n    public static void main(String[] args) {\n        // Manual sandbox for debugging.\n        // Example (edit this):\n        // ${primaryClassName} obj = new ${primaryClassName}(/* TODO */);\n        // System.out.println(obj);\n        System.out.println("Main running. Edit Main.java to debug your solution.");\n    }\n}\n`;
 }
 
+function buildPythonMainTemplate(): string {
+  return `import json\nimport sys\nimport traceback\n\nfrom solution import solve\n\n\ndef _parse_stdin() -> object:\n    raw = sys.stdin.read()\n    s = raw.strip()\n    if s == \"\":\n        return None\n    try:\n        return json.loads(s)\n    except Exception:\n        return raw\n\n\ndef main() -> None:\n    data = _parse_stdin()\n    try:\n        if isinstance(data, dict):\n            try:\n                out = solve(**data)\n            except TypeError:\n                out = solve(data)\n        elif isinstance(data, (list, tuple)):\n            try:\n                out = solve(*data)\n            except TypeError:\n                out = solve(data)\n        else:\n            out = solve(data)\n\n        if out is not None:\n            sys.stdout.write(str(out))\n    except Exception:\n        traceback.print_exc(file=sys.stderr)\n        raise\n\n\nif __name__ == \"__main__\":\n    main()\n`;
+}
+
+function countTests(language: "java" | "python", testSuite: string): number {
+  if (!testSuite.trim()) return 0;
+  if (language === "python") {
+    return (testSuite.match(/^\s*def\s+test_[A-Za-z0-9_]+\s*\(/gm) ?? []).length;
+  }
+  return (testSuite.match(/@Test\b/g) ?? []).length;
+}
+
 export default function ActivityPage() {
   const params = useParams<{ id: string }>();
   const activityId = params.id;
@@ -161,7 +178,7 @@ export default function ActivityPage() {
   const [selectedProblemId, setSelectedProblemId] = useState<string | null>(
     null
   );
-  const [files, setFiles] = useState<JavaFiles>({
+  const [files, setFiles] = useState<CodeFiles>({
     "Solution.java": "public class Solution {\n}\n",
     "Main.java": buildMainJavaTemplate("Solution"),
   });
@@ -180,7 +197,63 @@ export default function ActivityPage() {
   const [showDetails, setShowDetails] = useState(false);
   const [showDiagnostics, setShowDiagnostics] = useState(false);
 
+  function loadProblemIntoWorkspace(problem: Problem) {
+    const lang = getProblemLanguage(problem);
+    const starterCode =
+      problem.starter_code ||
+      problem.classSkeleton ||
+      (lang === "python"
+        ? "def solve(x):\n    # TODO: implement\n    raise NotImplementedError\n"
+        : "public class Solution {\n}\n");
+
+    if (problem.workspace && Array.isArray(problem.workspace.files) && problem.workspace.files.length > 0) {
+      const nextFiles: CodeFiles = {};
+      const nextRoles: Record<string, "entry" | "support" | "readonly"> = {};
+      for (const f of problem.workspace.files) {
+        nextFiles[f.path] = f.content;
+        nextRoles[f.path] = f.role;
+      }
+      setFiles(nextFiles);
+      setFileRoles(nextRoles);
+      const entryClass = problem.workspace.entrypoint ?? "Main";
+      setEntrypointClass(entryClass);
+      const firstEditable =
+        problem.workspace.files.find((f) => f.role !== "readonly")?.path ??
+        problem.workspace.files[0]!.path;
+      setActiveFilename(firstEditable);
+      return;
+    }
+
+    if (lang === "python") {
+      setFiles({
+        "solution.py": starterCode,
+        "main.py": buildPythonMainTemplate(),
+      });
+      setFileRoles({
+        "solution.py": "support",
+        "main.py": "entry",
+      });
+      setEntrypointClass("main.py");
+      setActiveFilename("solution.py");
+      return;
+    }
+
+    const primaryClassName = inferJavaClassName(starterCode, "Solution");
+    const primaryFilename = `${primaryClassName}.java`;
+    setFiles({
+      [primaryFilename]: starterCode,
+      "Main.java": buildMainJavaTemplate(primaryClassName),
+    });
+    setFileRoles({
+      [primaryFilename]: "support",
+      "Main.java": "entry",
+    });
+    setEntrypointClass("Main");
+    setActiveFilename(primaryFilename);
+  }
+
   useEffect(() => {
+
     async function load() {
       try {
         const token = localStorage.getItem("codem-token");
@@ -210,36 +283,7 @@ export default function ActivityPage() {
           if (act.problems.length > 0) {
             const first = act.problems[0];
             setSelectedProblemId(first.id);
-            if (first.workspace && Array.isArray(first.workspace.files) && first.workspace.files.length > 0) {
-              const nextFiles: JavaFiles = {};
-              const nextRoles: Record<string, "entry" | "support" | "readonly"> = {};
-              for (const f of first.workspace.files) {
-                nextFiles[f.path] = f.content;
-                nextRoles[f.path] = f.role;
-              }
-              setFiles(nextFiles);
-              setFileRoles(nextRoles);
-              const entryClass = first.workspace.entrypoint ?? "Main";
-              setEntrypointClass(entryClass);
-              const firstEditable =
-                first.workspace.files.find((f) => f.role !== "readonly")?.path ??
-                first.workspace.files[0]!.path;
-              setActiveFilename(firstEditable);
-            } else {
-              const starterCode = first.starter_code || first.classSkeleton || "public class Solution {\n}\n";
-              const primaryClassName = inferJavaClassName(starterCode, "Solution");
-              const primaryFilename = `${primaryClassName}.java`;
-              setFiles({
-                [primaryFilename]: starterCode,
-                "Main.java": buildMainJavaTemplate(primaryClassName),
-              });
-              setFileRoles({
-                [primaryFilename]: "support",
-                "Main.java": "entry",
-              });
-              setEntrypointClass("Main");
-              setActiveFilename(primaryFilename);
-            }
+            loadProblemIntoWorkspace(first);
           }
           setIsTimerRunning(true);
         }
@@ -263,16 +307,18 @@ export default function ActivityPage() {
   const selectedProblem = activity?.problems.find(
     (p) => p.id === selectedProblemId
   );
+  const selectedLanguage = getProblemLanguage(selectedProblem);
 
   const starterCode =
     selectedProblem?.starter_code || selectedProblem?.classSkeleton || "";
   const testSuite = selectedProblem?.test_suite || selectedProblem?.testSuite || "";
-  const testCount = (testSuite.match(/@Test\b/g) ?? []).length;
+  const testCount = countTests(selectedLanguage, testSuite);
   const activeCode = files[activeFilename] ?? "";
-  const entryFile =
-    Object.entries(fileRoles).find(([, role]) => role === "entry")?.[0] ?? "Main.java";
+  const entryFile = selectedLanguage === "python"
+    ? "main.py"
+    : Object.entries(fileRoles).find(([, role]) => role === "entry")?.[0] ?? "Main.java";
   const entrySource = files[entryFile] ?? "";
-  const canRunMain = hasJavaMainMethod(entrySource);
+  const canRunMain = selectedLanguage === "python" ? true : hasJavaMainMethod(entrySource);
   const isActiveReadonly = fileRoles[activeFilename] === "readonly";
 
   const junitTree =
@@ -292,23 +338,26 @@ export default function ActivityPage() {
 
   async function handleRun() {
     if (!selectedProblem) return;
-      if (!canRunMain) {
-        setResult({
-          stdout: "",
-          stderr:
+    if (!canRunMain && selectedLanguage !== "python") {
+      setResult({
+        stdout: "",
+        stderr:
           `No \`public static void main(String[] args)\` detected in ${entryFile}.\n\nThis activity is graded by unit tests. Use "Run tests" to see pass/fail, or add a main() method in the entry file if you want to print/debug locally.`,
-        });
-        return;
-      }
+      });
+      return;
+    }
     setRunning(true);
     try {
+      const sampleIns = selectedProblem.sample_inputs || selectedProblem.sampleInputs || [];
+      const stdin = sampleIns.length > 0 ? String(sampleIns[0]) : undefined;
       const res = await fetch(`${BACKEND_URL}/run`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           files,
-          mainClass: entrypointClass || "Main",
-          language: "java",
+          ...(selectedLanguage === "java" ? { mainClass: entrypointClass || "Main" } : {}),
+          ...(typeof stdin === "string" ? { stdin } : {}),
+          language: selectedLanguage,
         }),
       });
 
@@ -366,9 +415,7 @@ export default function ActivityPage() {
       }
 
       const testSuite = selectedProblem.test_suite || selectedProblem.testSuite || "";
-      const filesForTests = Object.fromEntries(
-        Object.entries(files).filter(([filename]) => fileRoles[filename] !== "entry")
-      );
+      const filesForTests = Object.fromEntries(Object.entries(files).filter(([filename]) => fileRoles[filename] !== "readonly"));
 
       const res = await fetch(`${BACKEND_URL}/submit`, {
         method: "POST",
@@ -378,7 +425,7 @@ export default function ActivityPage() {
           testSuite,
           activityId,
           problemId: selectedProblem.id,
-          language: "java",
+          language: selectedLanguage,
         }),
       });
 
@@ -439,14 +486,21 @@ export default function ActivityPage() {
   }
 
   function handleAddFile() {
-    const raw = window.prompt('New file name (e.g., "Helper.java")');
+    const raw = window.prompt(
+      selectedLanguage === "python"
+        ? 'New file name (e.g., "utils.py")'
+        : 'New file name (e.g., "Helper.java")'
+    );
     if (!raw) return;
     const name = raw.trim();
-    if (!/^[A-Za-z_][A-Za-z0-9_]*\.java$/.test(name)) {
+    const pattern = selectedLanguage === "python" ? /^[A-Za-z_][A-Za-z0-9_]*\.py$/ : /^[A-Za-z_][A-Za-z0-9_]*\.java$/;
+    if (!pattern.test(name)) {
       setResult({
         stdout: "",
         stderr:
-          'Invalid filename. Use something like "Helper.java" (letters/numbers/underscore, must end with .java).',
+          selectedLanguage === "python"
+            ? 'Invalid filename. Use something like "utils.py" (letters/numbers/underscore, must end with .py).'
+            : 'Invalid filename. Use something like "Helper.java" (letters/numbers/underscore, must end with .java).',
       });
       return;
     }
@@ -454,8 +508,11 @@ export default function ActivityPage() {
       setActiveFilename(name);
       return;
     }
-    const className = name.replace(/\.java$/i, "");
-    const skeleton = `public class ${className} {\n\n}\n`;
+    const className = name.replace(/\.[A-Za-z0-9_]+$/i, "");
+    const skeleton =
+      selectedLanguage === "python"
+        ? `# ${className}.py\n\n`
+        : `public class ${className} {\n\n}\n`;
     setFiles((prev) => ({ ...prev, [name]: skeleton }));
     setFileRoles((prev) => ({ ...prev, [name]: "support" }));
     setActiveFilename(name);
@@ -524,36 +581,7 @@ export default function ActivityPage() {
                   key={p.id}
                   onClick={() => {
                     setSelectedProblemId(p.id);
-                    const starterCode = p.starter_code || p.classSkeleton || "public class Solution {\n}\n";
-                    if (p.workspace && Array.isArray(p.workspace.files) && p.workspace.files.length > 0) {
-                      const nextFiles: JavaFiles = {};
-                      const nextRoles: Record<string, "entry" | "support" | "readonly"> = {};
-                      for (const f of p.workspace.files) {
-                        nextFiles[f.path] = f.content;
-                        nextRoles[f.path] = f.role;
-                      }
-                      setFiles(nextFiles);
-                      setFileRoles(nextRoles);
-                      const entryClass = p.workspace.entrypoint ?? "Main";
-                      setEntrypointClass(entryClass);
-                      const firstEditable =
-                        p.workspace.files.find((f) => f.role !== "readonly")?.path ??
-                        p.workspace.files[0]!.path;
-                      setActiveFilename(firstEditable);
-                    } else {
-                      const primaryClassName = inferJavaClassName(starterCode, "Solution");
-                      const primaryFilename = `${primaryClassName}.java`;
-                      setFiles({
-                        [primaryFilename]: starterCode,
-                        "Main.java": buildMainJavaTemplate(primaryClassName),
-                      });
-                      setFileRoles({
-                        [primaryFilename]: "support",
-                        "Main.java": "entry",
-                      });
-                      setEntrypointClass("Main");
-                      setActiveFilename(primaryFilename);
-                    }
+                    loadProblemIntoWorkspace(p);
                     setResult(null);
                     setShowTests(false);
                     setTimerSeconds(0);
@@ -570,6 +598,9 @@ export default function ActivityPage() {
                   </span>
                   <span className="line-clamp-2 text-xs text-slate-500">
                     {p.description}
+                  </span>
+                  <span className="mt-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                    {(p.language ?? "java").toUpperCase()}
                   </span>
                 </button>
               ))}
@@ -653,19 +684,21 @@ export default function ActivityPage() {
 		                  + File
 		                </button>
 		              </div>
-		              <div className="flex gap-2">
-		                <button
-		                  onClick={handleRun}
-		                  disabled={!selectedProblem || running || submitting || !canRunMain}
-		                  title={
-		                    canRunMain
-		                      ? "Runs Main.java"
-		                      : "Requires public static void main(String[] args) in Main.java"
-		                  }
-		                  className="rounded-full border border-slate-300 bg-white px-3 py-1 text-xs font-medium text-slate-800 shadow-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
-		                >
-		                  {running ? "Running..." : "Run (Main.java)"}
-		                </button>
+			              <div className="flex gap-2">
+			                <button
+			                  onClick={handleRun}
+			                  disabled={!selectedProblem || running || submitting || (!canRunMain && selectedLanguage !== "python")}
+			                  title={
+			                    selectedLanguage === "python"
+			                      ? "Runs main.py (harness) and prints solve(...)"
+			                      : canRunMain
+			                        ? `Runs ${entryFile}`
+			                        : `Requires public static void main(String[] args) in ${entryFile}`
+			                  }
+			                  className="rounded-full border border-slate-300 bg-white px-3 py-1 text-xs font-medium text-slate-800 shadow-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+			                >
+			                  {running ? "Running..." : `Run (${entryFile})`}
+			                </button>
 		                <button
 		                  onClick={handleRunTests}
 		                  disabled={!selectedProblem || submitting || running}
@@ -682,20 +715,20 @@ export default function ActivityPage() {
 	                </button>
 		              </div>
 		            </div>
-		            {selectedProblem && !canRunMain && (
-		              <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
-		                No <span className="font-mono">main()</span> method detected in{" "}
-		                <span className="font-mono">{entryFile}</span>. Use{" "}
-		                <span className="font-semibold">Run tests</span>, or add{" "}
-		                <span className="font-mono">public static void main(String[] args)</span> to{" "}
-		                <span className="font-mono">{entryFile}</span>.
-		              </div>
-		            )}
+			            {selectedProblem && selectedLanguage === "java" && !canRunMain && (
+			              <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+			                No <span className="font-mono">main()</span> method detected in{" "}
+			                <span className="font-mono">{entryFile}</span>. Use{" "}
+			                <span className="font-semibold">Run tests</span>, or add{" "}
+			                <span className="font-mono">public static void main(String[] args)</span> to{" "}
+			                <span className="font-mono">{entryFile}</span>.
+			              </div>
+			            )}
 	            <div className="h-[70vh] min-h-[520px] max-h-[calc(100vh-220px)] overflow-hidden rounded-xl border border-slate-200 bg-slate-950">
-	              <Editor
-	                height="100%"
-	                defaultLanguage="java"
-	                value={activeCode}
+		              <Editor
+		                height="100%"
+		                language={selectedLanguage}
+		                value={activeCode}
 	                onChange={(value) => {
 	                  const next = value ?? "";
 	                  if (fileRoles[activeFilename] === "readonly") return;
@@ -741,13 +774,15 @@ export default function ActivityPage() {
 	                </pre>
 	              </div>
 	            )}
-		            {!result && (
-		              <p className="text-slate-500">
-		                Use <span className="font-semibold">Run tests</span> to see pass/fail.{" "}
-		                <span className="font-semibold">Run (Main.java)</span> runs whatever you put in{" "}
-		                <span className="font-mono">Main.java</span>.
-		              </p>
-		            )}
+			            {!result && (
+			              <p className="text-slate-500">
+			                Use <span className="font-semibold">Run tests</span> to see pass/fail.{" "}
+			                <span className="font-semibold">Run ({entryFile})</span>{" "}
+			                {selectedLanguage === "python"
+			                  ? "runs a small harness that calls solve(...) from solution.py."
+			                  : `runs whatever you put in ${entryFile}.`}
+			              </p>
+			            )}
 	            {result && "success" in result && (
 	              <>
 	                <div className="flex flex-wrap items-center gap-3">
