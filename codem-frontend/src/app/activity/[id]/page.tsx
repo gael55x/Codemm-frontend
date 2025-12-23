@@ -5,7 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import Editor from "@monaco-editor/react";
 
 type Problem = {
-  language?: "java" | "python";
+  language?: "java" | "python" | "cpp";
   id: string;
   title: string;
   description: string;
@@ -58,8 +58,10 @@ type CodeFiles = Record<string, string>;
 const BACKEND_URL =
   process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:4000";
 
-function getProblemLanguage(p: Problem | null | undefined): "java" | "python" {
-  return p?.language === "python" ? "python" : "java";
+function getProblemLanguage(p: Problem | null | undefined): "java" | "python" | "cpp" {
+  if (p?.language === "python") return "python";
+  if (p?.language === "cpp") return "cpp";
+  return "java";
 }
 
 function stripAnsi(text: string): string {
@@ -148,6 +150,12 @@ function hasJavaMainMethod(source: string): boolean {
   );
 }
 
+function hasCppMainMethod(source: string): boolean {
+  const withoutBlockComments = source.replace(/\/\*[\s\S]*?\*\//g, "");
+  const withoutLineComments = withoutBlockComments.replace(/\/\/.*$/gm, "");
+  return /\bint\s+main\s*\(/.test(withoutLineComments);
+}
+
 function inferJavaClassName(source: string, fallback: string): string {
   return source.match(/class\s+([A-Za-z_][A-Za-z0-9_]*)/)?.[1] ?? fallback;
 }
@@ -160,10 +168,23 @@ function buildPythonMainTemplate(): string {
   return `import json\nimport sys\nimport traceback\n\nfrom solution import solve\n\n\ndef _parse_stdin() -> object:\n    raw = sys.stdin.read()\n    s = raw.strip()\n    if s == \"\":\n        return None\n    try:\n        return json.loads(s)\n    except Exception:\n        return raw\n\n\ndef main() -> None:\n    data = _parse_stdin()\n    try:\n        if isinstance(data, dict):\n            try:\n                out = solve(**data)\n            except TypeError:\n                out = solve(data)\n        elif isinstance(data, (list, tuple)):\n            try:\n                out = solve(*data)\n            except TypeError:\n                out = solve(data)\n        else:\n            out = solve(data)\n\n        if out is not None:\n            sys.stdout.write(str(out))\n    except Exception:\n        traceback.print_exc(file=sys.stderr)\n        raise\n\n\nif __name__ == \"__main__\":\n    main()\n`;
 }
 
-function countTests(language: "java" | "python", testSuite: string): number {
+function buildCppMainTemplate(): string {
+  return `#include <bits/stdc++.h>\n\nint main() {\n    // Manual sandbox for debugging.\n    // Edit main.cpp to call solve(...) with your own test values.\n    std::cout << \"Main running. Edit main.cpp to debug your solution.\" << std::endl;\n    return 0;\n}\n`;
+}
+
+function countTests(language: "java" | "python" | "cpp", testSuite: string): number {
   if (!testSuite.trim()) return 0;
   if (language === "python") {
     return (testSuite.match(/^\s*def\s+test_[A-Za-z0-9_]+\s*\(/gm) ?? []).length;
+  }
+  if (language === "cpp") {
+    const re = /RUN_TEST\s*\(\s*"test_case_(\d+)"/g;
+    const seen = new Set<string>();
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(testSuite)) !== null) {
+      if (m[1]) seen.add(m[1]);
+    }
+    return seen.size;
   }
   return (testSuite.match(/@Test\b/g) ?? []).length;
 }
@@ -204,6 +225,8 @@ export default function ActivityPage() {
       problem.classSkeleton ||
       (lang === "python"
         ? "def solve(x):\n    # TODO: implement\n    raise NotImplementedError\n"
+        : lang === "cpp"
+        ? "#include <bits/stdc++.h>\n\n// Implement solve(...) below.\nauto solve(auto x) { (void)x; return 0; }\n"
         : "public class Solution {\n}\n");
 
     if (problem.workspace && Array.isArray(problem.workspace.files) && problem.workspace.files.length > 0) {
@@ -235,6 +258,20 @@ export default function ActivityPage() {
       });
       setEntrypointClass("main.py");
       setActiveFilename("solution.py");
+      return;
+    }
+
+    if (lang === "cpp") {
+      setFiles({
+        "solution.cpp": starterCode,
+        "main.cpp": buildCppMainTemplate(),
+      });
+      setFileRoles({
+        "solution.cpp": "support",
+        "main.cpp": "entry",
+      });
+      setEntrypointClass("main.cpp");
+      setActiveFilename("solution.cpp");
       return;
     }
 
@@ -314,11 +351,19 @@ export default function ActivityPage() {
   const testSuite = selectedProblem?.test_suite || selectedProblem?.testSuite || "";
   const testCount = countTests(selectedLanguage, testSuite);
   const activeCode = files[activeFilename] ?? "";
-  const entryFile = selectedLanguage === "python"
-    ? "main.py"
-    : Object.entries(fileRoles).find(([, role]) => role === "entry")?.[0] ?? "Main.java";
+  const entryFile =
+    selectedLanguage === "python"
+      ? "main.py"
+      : selectedLanguage === "cpp"
+      ? "main.cpp"
+      : Object.entries(fileRoles).find(([, role]) => role === "entry")?.[0] ?? "Main.java";
   const entrySource = files[entryFile] ?? "";
-  const canRunMain = selectedLanguage === "python" ? true : hasJavaMainMethod(entrySource);
+  const canRunMain =
+    selectedLanguage === "python"
+      ? true
+      : selectedLanguage === "cpp"
+      ? hasCppMainMethod(entrySource)
+      : hasJavaMainMethod(entrySource);
   const isActiveReadonly = fileRoles[activeFilename] === "readonly";
 
   const junitTree =
@@ -339,10 +384,14 @@ export default function ActivityPage() {
   async function handleRun() {
     if (!selectedProblem) return;
     if (!canRunMain && selectedLanguage !== "python") {
+      const mainSig =
+        selectedLanguage === "cpp"
+          ? "int main(...)"
+          : "`public static void main(String[] args)`";
       setResult({
         stdout: "",
         stderr:
-          `No \`public static void main(String[] args)\` detected in ${entryFile}.\n\nThis activity is graded by unit tests. Use "Run tests" to see pass/fail, or add a main() method in the entry file if you want to print/debug locally.`,
+          `No ${mainSig} detected in ${entryFile}.\n\nThis activity is graded by unit tests. Use "Run tests" to see pass/fail, or add a main() entrypoint if you want to print/debug locally.`,
       });
       return;
     }
@@ -415,7 +464,14 @@ export default function ActivityPage() {
       }
 
       const testSuite = selectedProblem.test_suite || selectedProblem.testSuite || "";
-      const filesForTests = Object.fromEntries(Object.entries(files).filter(([filename]) => fileRoles[filename] !== "readonly"));
+      const filesForTests = Object.fromEntries(
+        Object.entries(files).filter(([filename]) => {
+          if (fileRoles[filename] === "readonly") return false;
+          if (selectedLanguage !== "cpp") return true;
+          if (filename.endsWith(".cpp")) return filename === "solution.cpp";
+          return true;
+        })
+      );
 
       const res = await fetch(`${BACKEND_URL}/submit`, {
         method: "POST",
@@ -489,17 +545,26 @@ export default function ActivityPage() {
     const raw = window.prompt(
       selectedLanguage === "python"
         ? 'New file name (e.g., "utils.py")'
+        : selectedLanguage === "cpp"
+        ? 'New file name (e.g., "helper.hpp" or "helper.cpp")'
         : 'New file name (e.g., "Helper.java")'
     );
     if (!raw) return;
     const name = raw.trim();
-    const pattern = selectedLanguage === "python" ? /^[A-Za-z_][A-Za-z0-9_]*\.py$/ : /^[A-Za-z_][A-Za-z0-9_]*\.java$/;
+    const pattern =
+      selectedLanguage === "python"
+        ? /^[A-Za-z_][A-Za-z0-9_]*\.py$/
+        : selectedLanguage === "cpp"
+        ? /^[A-Za-z_][A-Za-z0-9_]*\.(?:cpp|h|hpp)$/
+        : /^[A-Za-z_][A-Za-z0-9_]*\.java$/;
     if (!pattern.test(name)) {
       setResult({
         stdout: "",
         stderr:
           selectedLanguage === "python"
             ? 'Invalid filename. Use something like "utils.py" (letters/numbers/underscore, must end with .py).'
+            : selectedLanguage === "cpp"
+            ? 'Invalid filename. Use something like "helper.hpp" or "helper.cpp" (letters/numbers/underscore, must end with .hpp/.h/.cpp).'
             : 'Invalid filename. Use something like "Helper.java" (letters/numbers/underscore, must end with .java).',
       });
       return;
@@ -512,6 +577,10 @@ export default function ActivityPage() {
     const skeleton =
       selectedLanguage === "python"
         ? `# ${className}.py\n\n`
+        : selectedLanguage === "cpp"
+        ? name.endsWith(".cpp")
+          ? `#include <bits/stdc++.h>\n\n`
+          : `#pragma once\n\n`
         : `public class ${className} {\n\n}\n`;
     setFiles((prev) => ({ ...prev, [name]: skeleton }));
     setFileRoles((prev) => ({ ...prev, [name]: "support" }));
@@ -693,7 +762,9 @@ export default function ActivityPage() {
 			                      ? "Runs main.py (harness) and prints solve(...)"
 			                      : canRunMain
 			                        ? `Runs ${entryFile}`
-			                        : `Requires public static void main(String[] args) in ${entryFile}`
+			                        : selectedLanguage === "cpp"
+			                          ? `Requires int main(...) in ${entryFile}`
+			                          : `Requires public static void main(String[] args) in ${entryFile}`
 			                  }
 			                  className="rounded-full border border-slate-300 bg-white px-3 py-1 text-xs font-medium text-slate-800 shadow-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
 			                >
@@ -715,13 +786,15 @@ export default function ActivityPage() {
 	                </button>
 		              </div>
 		            </div>
-			            {selectedProblem && selectedLanguage === "java" && !canRunMain && (
+			            {selectedProblem && (selectedLanguage === "java" || selectedLanguage === "cpp") && !canRunMain && (
 			              <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
-			                No <span className="font-mono">main()</span> method detected in{" "}
+			                No <span className="font-mono">main()</span> entrypoint detected in{" "}
 			                <span className="font-mono">{entryFile}</span>. Use{" "}
 			                <span className="font-semibold">Run tests</span>, or add{" "}
-			                <span className="font-mono">public static void main(String[] args)</span> to{" "}
-			                <span className="font-mono">{entryFile}</span>.
+			                <span className="font-mono">
+			                  {selectedLanguage === "cpp" ? "int main(...)" : "public static void main(String[] args)"}
+			                </span>{" "}
+			                to <span className="font-mono">{entryFile}</span>.
 			              </div>
 			            )}
 	            <div className="h-[70vh] min-h-[520px] max-h-[calc(100vh-220px)] overflow-hidden rounded-xl border border-slate-200 bg-slate-950">
