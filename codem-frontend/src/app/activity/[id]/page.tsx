@@ -3,9 +3,23 @@
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Editor from "@monaco-editor/react";
+import {
+  CPP_FILENAME_PATTERN,
+  JAVA_FILENAME_PATTERN,
+  PYTHON_FILENAME_PATTERN,
+  buildCppMainTemplate,
+  buildMainJavaTemplate,
+  buildPythonMainTemplate,
+  countTests,
+  hasCppMainMethod,
+  hasJavaMainMethod,
+  inferJavaClassName,
+  type FileRole,
+  type LanguageId,
+} from "@/lib/languages";
 
 type Problem = {
-  language?: "java" | "python" | "cpp";
+  language?: LanguageId;
   id: string;
   title: string;
   description: string;
@@ -16,7 +30,7 @@ type Problem = {
   test_suite?: string;
   testSuite?: string;
   workspace?: {
-    files: { path: string; role: "entry" | "support" | "readonly"; content: string }[];
+    files: { path: string; role: FileRole; content: string }[];
     entrypoint?: string;
   };
   constraints: string;
@@ -58,7 +72,7 @@ type CodeFiles = Record<string, string>;
 const BACKEND_URL =
   process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:4000";
 
-function getProblemLanguage(p: Problem | null | undefined): "java" | "python" | "cpp" {
+function getProblemLanguage(p: Problem | null | undefined): LanguageId {
   if (p?.language === "python") return "python";
   if (p?.language === "cpp") return "cpp";
   return "java";
@@ -142,53 +156,6 @@ function normalizeDiagnostics(text: string): string {
   return filtered.join("\n").trim();
 }
 
-function hasJavaMainMethod(source: string): boolean {
-  const withoutBlockComments = source.replace(/\/\*[\s\S]*?\*\//g, "");
-  const withoutLineComments = withoutBlockComments.replace(/\/\/.*$/gm, "");
-  return /public\s+static\s+void\s+main\s*\(\s*(?:final\s+)?String\s*(?:(?:\[\s*\]|\.\.\.)\s*\w+|\w+\s*\[\s*\])\s*\)/.test(
-    withoutLineComments
-  );
-}
-
-function hasCppMainMethod(source: string): boolean {
-  const withoutBlockComments = source.replace(/\/\*[\s\S]*?\*\//g, "");
-  const withoutLineComments = withoutBlockComments.replace(/\/\/.*$/gm, "");
-  return /\bint\s+main\s*\(/.test(withoutLineComments);
-}
-
-function inferJavaClassName(source: string, fallback: string): string {
-  return source.match(/class\s+([A-Za-z_][A-Za-z0-9_]*)/)?.[1] ?? fallback;
-}
-
-function buildMainJavaTemplate(primaryClassName: string): string {
-  return `public class Main {\n    public static void main(String[] args) {\n        // Manual sandbox for debugging.\n        // Example (edit this):\n        // ${primaryClassName} obj = new ${primaryClassName}(/* TODO */);\n        // System.out.println(obj);\n        System.out.println("Main running. Edit Main.java to debug your solution.");\n    }\n}\n`;
-}
-
-function buildPythonMainTemplate(): string {
-  return `import json\nimport sys\nimport traceback\n\nfrom solution import solve\n\n\ndef _parse_stdin() -> object:\n    raw = sys.stdin.read()\n    s = raw.strip()\n    if s == \"\":\n        return None\n    try:\n        return json.loads(s)\n    except Exception:\n        return raw\n\n\ndef main() -> None:\n    data = _parse_stdin()\n    try:\n        if isinstance(data, dict):\n            try:\n                out = solve(**data)\n            except TypeError:\n                out = solve(data)\n        elif isinstance(data, (list, tuple)):\n            try:\n                out = solve(*data)\n            except TypeError:\n                out = solve(data)\n        else:\n            out = solve(data)\n\n        if out is not None:\n            sys.stdout.write(str(out))\n    except Exception:\n        traceback.print_exc(file=sys.stderr)\n        raise\n\n\nif __name__ == \"__main__\":\n    main()\n`;
-}
-
-function buildCppMainTemplate(): string {
-  return `#include <bits/stdc++.h>\n\nint main() {\n    // Manual sandbox for debugging.\n    // Edit main.cpp to call solve(...) with your own test values.\n    std::cout << \"Main running. Edit main.cpp to debug your solution.\" << std::endl;\n    return 0;\n}\n`;
-}
-
-function countTests(language: "java" | "python" | "cpp", testSuite: string): number {
-  if (!testSuite.trim()) return 0;
-  if (language === "python") {
-    return (testSuite.match(/^\s*def\s+test_[A-Za-z0-9_]+\s*\(/gm) ?? []).length;
-  }
-  if (language === "cpp") {
-    const re = /RUN_TEST\s*\(\s*"test_case_(\d+)"/g;
-    const seen = new Set<string>();
-    let m: RegExpExecArray | null;
-    while ((m = re.exec(testSuite)) !== null) {
-      if (m[1]) seen.add(m[1]);
-    }
-    return seen.size;
-  }
-  return (testSuite.match(/@Test\b/g) ?? []).length;
-}
-
 export default function ActivityPage() {
   const params = useParams<{ id: string }>();
   const activityId = params.id;
@@ -203,7 +170,7 @@ export default function ActivityPage() {
     "Solution.java": "public class Solution {\n}\n",
     "Main.java": buildMainJavaTemplate("Solution"),
   });
-  const [fileRoles, setFileRoles] = useState<Record<string, "entry" | "support" | "readonly">>({
+  const [fileRoles, setFileRoles] = useState<Record<string, FileRole>>({
     "Solution.java": "support",
     "Main.java": "entry",
   });
@@ -231,7 +198,7 @@ export default function ActivityPage() {
 
     if (problem.workspace && Array.isArray(problem.workspace.files) && problem.workspace.files.length > 0) {
       const nextFiles: CodeFiles = {};
-      const nextRoles: Record<string, "entry" | "support" | "readonly"> = {};
+      const nextRoles: Record<string, FileRole> = {};
       for (const f of problem.workspace.files) {
         nextFiles[f.path] = f.content;
         nextRoles[f.path] = f.role;
@@ -553,10 +520,10 @@ export default function ActivityPage() {
     const name = raw.trim();
     const pattern =
       selectedLanguage === "python"
-        ? /^[A-Za-z_][A-Za-z0-9_]*\.py$/
+        ? PYTHON_FILENAME_PATTERN
         : selectedLanguage === "cpp"
-        ? /^[A-Za-z_][A-Za-z0-9_]*\.(?:cpp|h|hpp)$/
-        : /^[A-Za-z_][A-Za-z0-9_]*\.java$/;
+        ? CPP_FILENAME_PATTERN
+        : JAVA_FILENAME_PATTERN;
     if (!pattern.test(name)) {
       setResult({
         stdout: "",
