@@ -55,7 +55,6 @@ export default function Home() {
   const [specReady, setSpecReady] = useState(false);
   const [progress, setProgress] = useState<GenerationProgressState | null>(null);
   const [progressHint, setProgressHint] = useState<string | null>(null);
-  const [progressEvents, setProgressEvents] = useState<GenerationProgressEvent[]>([]);
   const progressRef = useRef<EventSource | null>(null);
 
   useEffect(() => {
@@ -132,10 +131,10 @@ export default function Home() {
     if (p.stage === "queued") return "Queued";
     if (p.stage === "done") return "Done";
     if (p.stage === "failed") return "Failed";
-    if (p.lastFailure) return `${p.lastFailure.message} Retrying… (attempt ${Math.min(3, p.attempt + 1)}/3)`;
-    if (p.stage === "llm") return p.attempt ? `LLM (attempt ${p.attempt}/3)` : "LLM";
-    if (p.stage === "contract") return p.attempt ? `Contract (attempt ${p.attempt}/3)` : "Contract";
-    if (p.stage === "docker") return p.attempt ? `Docker (attempt ${p.attempt}/3)` : "Docker";
+    if (p.lastFailure) return `Retrying… (attempt ${Math.min(3, p.attempt + 1)}/3)`;
+    if (p.stage === "llm") return p.attempt ? `Generating (attempt ${p.attempt}/3)` : "Generating";
+    if (p.stage === "contract") return p.attempt ? `Validating contract (attempt ${p.attempt}/3)` : "Validating contract";
+    if (p.stage === "docker") return p.attempt ? `Validating in Docker (attempt ${p.attempt}/3)` : "Validating in Docker";
     return "Queued";
   }
 
@@ -147,68 +146,6 @@ export default function Home() {
     if (p.stage === "contract") return 50;
     if (p.stage === "docker") return 75;
     return 0;
-  }
-
-  function formatProgressEvent(ev: GenerationProgressEvent): string {
-    if (ev.type === "generation_started") {
-      const total = ev.totalSlots ?? ev.totalProblems ?? 0;
-      return `generation_started totalSlots=${total}${ev.run ? ` run=${ev.run}` : ""}`;
-    }
-    if (ev.type === "slot_started") {
-      return `slot_started slot=${ev.slotIndex + 1} (${ev.difficulty} — ${ev.topic})`;
-    }
-    if (ev.type === "slot_llm_attempt_started") {
-      return `slot_llm_attempt_started slot=${ev.slotIndex + 1} attempt=${ev.attempt}/3`;
-    }
-    if (ev.type === "slot_contract_validated") {
-      return `slot_contract_validated slot=${ev.slotIndex + 1} attempt=${ev.attempt}/3`;
-    }
-    if (ev.type === "slot_contract_failed") {
-      return `slot_contract_failed slot=${ev.slotIndex + 1} attempt=${ev.attempt}/3 (${ev.shortError})`;
-    }
-    if (ev.type === "slot_docker_validation_started") {
-      return `slot_docker_validation_started slot=${ev.slotIndex + 1} attempt=${ev.attempt}/3`;
-    }
-    if (ev.type === "slot_docker_validation_failed") {
-      return `slot_docker_validation_failed slot=${ev.slotIndex + 1} attempt=${ev.attempt}/3 (${ev.shortError})`;
-    }
-    if (ev.type === "slot_completed") {
-      return `slot_completed slot=${ev.slotIndex + 1}`;
-    }
-    if (ev.type === "generation_completed") {
-      return `generation_completed activityId=${ev.activityId}`;
-    }
-    if (ev.type === "generation_complete") {
-      return `generation_complete activityId=${ev.activityId}`;
-    }
-    if (ev.type === "generation_failed") {
-      return `generation_failed${typeof ev.slotIndex === "number" ? ` slot=${ev.slotIndex + 1}` : ""} (${ev.error})`;
-    }
-    if (ev.type === "problem_started") {
-      return `problem_started slot=${ev.index + 1} (${ev.difficulty})`;
-    }
-    if (ev.type === "attempt_started") {
-      return `attempt_started slot=${ev.index + 1} attempt=${ev.attempt}/3`;
-    }
-    if (ev.type === "validation_started") {
-      return `validation_started slot=${ev.index + 1} attempt=${ev.attempt}/3`;
-    }
-    if (ev.type === "validation_failed") {
-      return `validation_failed slot=${ev.index + 1} attempt=${ev.attempt}/3`;
-    }
-    if (ev.type === "attempt_failed") {
-      return `attempt_failed slot=${ev.index + 1} attempt=${ev.attempt}/3 phase=${ev.phase}`;
-    }
-    if (ev.type === "problem_validated") {
-      return `problem_validated slot=${ev.index + 1}`;
-    }
-    if (ev.type === "problem_failed") {
-      return `problem_failed slot=${ev.index + 1}`;
-    }
-    if (ev.type === "heartbeat") {
-      return `heartbeat ts=${ev.ts}`;
-    }
-    return ev.type;
   }
 
   async function handleChatSend() {
@@ -297,7 +234,6 @@ export default function Home() {
       // Open structured progress stream (no prompts, no reasoning, no logs).
       setProgress(null);
       setProgressHint(null);
-      setProgressEvents([]);
       try {
         progressRef.current?.close();
       } catch {
@@ -322,15 +258,6 @@ export default function Home() {
           const ev = payload as GenerationProgressEvent;
           if (!ev || typeof ev.type !== "string") return;
           window.clearTimeout(hintTimer);
-
-          if (ev.type === "generation_started") {
-            setProgressEvents([ev]);
-          } else if (ev.type !== "heartbeat") {
-            setProgressEvents((prev) => {
-              const next = [...prev, ev];
-              return next.length > 30 ? next.slice(next.length - 30) : next;
-            });
-          }
 
           setProgress((prev) => {
             if (ev.type === "generation_started") {
@@ -791,30 +718,9 @@ export default function Home() {
                                   : "border-slate-200 bg-white/40"
                               }`}
                             >
-                              {progress.slots.map((p, i) => {
+                            {progress.slots.map((p, i) => {
                                 const percent = renderSlotPercent(p);
                                 const active = p.stage !== "queued" && p.stage !== "done" && p.stage !== "failed";
-                                const stages = [
-                                  {
-                                    label: "LLM",
-                                    active: p.stage === "llm",
-                                    done: p.stageDone.llm,
-                                    failed: false,
-                                  },
-                                  {
-                                    label: "Contract",
-                                    active: p.stage === "contract",
-                                    done: p.stageDone.contract,
-                                    failed: p.lastFailure?.stage === "contract" && p.stage === "contract",
-                                  },
-                                  {
-                                    label: "Docker",
-                                    active: p.stage === "docker",
-                                    done: p.stageDone.docker,
-                                    failed: p.lastFailure?.stage === "docker",
-                                  },
-                                  { label: "Done", active: p.stage === "done", done: p.stage === "done", failed: false },
-                                ] as const;
                                 return (
                                   <div key={i} className="space-y-1">
                                     <div className="flex items-center justify-between gap-3 text-[12px]">
@@ -830,29 +736,6 @@ export default function Home() {
                                       <div className={`truncate ${active ? "animate-pulse" : ""}`}>
                                         {renderSlotStatus(p)}
                                       </div>
-                                      <div className="shrink-0 tabular-nums">
-                                        {p.attempt ? `Attempt ${p.attempt}/3` : ""}
-                                      </div>
-                                    </div>
-                                    <div className="flex items-center gap-1 text-[10px] opacity-80">
-                                      {stages.map((s) => {
-                                        const bg = s.failed
-                                          ? "bg-rose-500"
-                                          : s.done
-                                            ? "bg-emerald-500"
-                                            : s.active
-                                              ? "bg-blue-500"
-                                              : darkMode
-                                                ? "bg-slate-800"
-                                                : "bg-slate-200";
-                                        const text = darkMode ? "text-slate-200" : "text-slate-700";
-                                        return (
-                                          <div key={s.label} className="flex items-center gap-1">
-                                            <div className={`h-1.5 w-6 rounded-full ${bg}`} />
-                                            <div className={text}>{s.label}</div>
-                                          </div>
-                                        );
-                                      })}
                                     </div>
                                     <div
                                       className={`h-1.5 w-full overflow-hidden rounded-full ${
@@ -870,27 +753,6 @@ export default function Home() {
                                 );
                               })}
                             </div>
-
-                            <details
-                              className={`rounded-xl border p-3 text-[11px] ${
-                                darkMode ? "border-slate-700 bg-slate-950/40" : "border-slate-200 bg-white/40"
-                              }`}
-                            >
-                              <summary className={`cursor-pointer select-none ${darkMode ? "text-slate-200" : "text-slate-700"}`}>
-                                Details ({progressEvents.length})
-                              </summary>
-                              <div className={`mt-2 space-y-1 ${darkMode ? "text-slate-200" : "text-slate-700"}`}>
-                                {progressEvents.length === 0 ? (
-                                  <div className="opacity-70">No events yet.</div>
-                                ) : (
-                                  progressEvents.map((ev, idx) => (
-                                    <div key={idx} className="font-mono opacity-80">
-                                      {formatProgressEvent(ev)}
-                                    </div>
-                                  ))
-                                )}
-                              </div>
-                            </details>
                           </>
                         ) : (
                           <div className="text-[11px] opacity-70">Waiting for progress events…</div>
