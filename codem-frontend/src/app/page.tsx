@@ -3,7 +3,11 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useSpecBuilderUX } from "@/lib/specBuilderUx";
-import type { GenerationProgressEvent } from "@/types/generationProgress";
+import type {
+  Difficulty,
+  GenerationLanguage,
+  GenerationProgressEvent,
+} from "@/types/generationProgress";
 
 const BACKEND_URL =
   process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:4000";
@@ -14,19 +18,23 @@ type ChatMessage = {
   tone?: "question" | "hint" | "info";
 };
 
-type ProblemPhase = "queued" | "generating" | "validating" | "retrying" | "validated" | "failed";
-type ProblemProgress = {
-  phase: ProblemPhase;
-  attempt: number | null;
-  difficulty: "easy" | "medium" | "hard" | null;
-  lastFailure: "validation" | "generation" | null;
+type SlotStage = "queued" | "llm" | "contract" | "docker" | "done" | "failed";
+type SlotProgress = {
+  stage: SlotStage;
+  attempt: number;
+  difficulty: Difficulty | null;
+  topic: string | null;
+  language: GenerationLanguage | null;
+  stageDone: { llm: boolean; contract: boolean; docker: boolean };
+  lastFailure: { stage: "contract" | "docker"; message: string } | null;
 };
 
 type GenerationProgressState = {
-  totalProblems: number;
+  totalSlots: number;
   run: number;
-  problems: ProblemProgress[];
+  slots: SlotProgress[];
   error: string | null;
+  lastHeartbeatTs: string | null;
 };
 
 type LearningMode = "practice" | "guided";
@@ -47,6 +55,7 @@ export default function Home() {
   const [specReady, setSpecReady] = useState(false);
   const [progress, setProgress] = useState<GenerationProgressState | null>(null);
   const [progressHint, setProgressHint] = useState<string | null>(null);
+  const [progressEvents, setProgressEvents] = useState<GenerationProgressEvent[]>([]);
   const progressRef = useRef<EventSource | null>(null);
 
   useEffect(() => {
@@ -114,34 +123,92 @@ export default function Home() {
   };
 
   function renderOverallPercent(p: GenerationProgressState): number {
-    const validated = p.problems.filter((x) => x.phase === "validated").length;
-    const total = p.totalProblems || 1;
-    return Math.max(0, Math.min(100, Math.round((validated / total) * 100)));
+    const done = p.slots.filter((x) => x.stage === "done").length;
+    const total = p.totalSlots || 1;
+    return Math.max(0, Math.min(100, Math.round((done / total) * 100)));
   }
 
-  function renderProblemStatus(p: ProblemProgress): string {
-    if (p.phase === "queued") return "Queued";
-    if (p.phase === "validated") return "Validated";
-    if (p.phase === "failed") return "Failed";
-    if (p.phase === "generating") return `Generating${p.attempt ? ` (attempt ${p.attempt})` : ""}`;
-    if (p.phase === "validating") return `Validating${p.attempt ? ` (attempt ${p.attempt})` : ""}`;
-    if (p.phase === "retrying") {
-      const prefix = p.lastFailure === "validation" ? "Validation failed, retrying…" : "Retrying…";
-      return `${prefix}${p.attempt ? ` (attempt ${p.attempt})` : ""}`;
-    }
+  function renderSlotStatus(p: SlotProgress): string {
+    if (p.stage === "queued") return "Queued";
+    if (p.stage === "done") return "Done";
+    if (p.stage === "failed") return "Failed";
+    if (p.lastFailure) return `${p.lastFailure.message} Retrying… (attempt ${Math.min(3, p.attempt + 1)}/3)`;
+    if (p.stage === "llm") return p.attempt ? `LLM (attempt ${p.attempt}/3)` : "LLM";
+    if (p.stage === "contract") return p.attempt ? `Contract (attempt ${p.attempt}/3)` : "Contract";
+    if (p.stage === "docker") return p.attempt ? `Docker (attempt ${p.attempt}/3)` : "Docker";
     return "Queued";
   }
 
-  function renderProblemPercent(p: ProblemProgress): number {
-    if (p.phase === "validated") return 100;
-    if (p.phase === "failed") return 100;
-    if (p.phase === "queued") return 0;
-    if (p.phase === "validating") return 66;
-    if (p.phase === "generating") return 33;
-    if (p.phase === "retrying") {
-      return p.lastFailure === "validation" ? 66 : 33;
-    }
+  function renderSlotPercent(p: SlotProgress): number {
+    if (p.stage === "done") return 100;
+    if (p.stage === "failed") return 100;
+    if (p.stage === "queued") return 0;
+    if (p.stage === "llm") return 25;
+    if (p.stage === "contract") return 50;
+    if (p.stage === "docker") return 75;
     return 0;
+  }
+
+  function formatProgressEvent(ev: GenerationProgressEvent): string {
+    if (ev.type === "generation_started") {
+      const total = ev.totalSlots ?? ev.totalProblems ?? 0;
+      return `generation_started totalSlots=${total}${ev.run ? ` run=${ev.run}` : ""}`;
+    }
+    if (ev.type === "slot_started") {
+      return `slot_started slot=${ev.slotIndex + 1} (${ev.difficulty} — ${ev.topic})`;
+    }
+    if (ev.type === "slot_llm_attempt_started") {
+      return `slot_llm_attempt_started slot=${ev.slotIndex + 1} attempt=${ev.attempt}/3`;
+    }
+    if (ev.type === "slot_contract_validated") {
+      return `slot_contract_validated slot=${ev.slotIndex + 1} attempt=${ev.attempt}/3`;
+    }
+    if (ev.type === "slot_contract_failed") {
+      return `slot_contract_failed slot=${ev.slotIndex + 1} attempt=${ev.attempt}/3 (${ev.shortError})`;
+    }
+    if (ev.type === "slot_docker_validation_started") {
+      return `slot_docker_validation_started slot=${ev.slotIndex + 1} attempt=${ev.attempt}/3`;
+    }
+    if (ev.type === "slot_docker_validation_failed") {
+      return `slot_docker_validation_failed slot=${ev.slotIndex + 1} attempt=${ev.attempt}/3 (${ev.shortError})`;
+    }
+    if (ev.type === "slot_completed") {
+      return `slot_completed slot=${ev.slotIndex + 1}`;
+    }
+    if (ev.type === "generation_completed") {
+      return `generation_completed activityId=${ev.activityId}`;
+    }
+    if (ev.type === "generation_complete") {
+      return `generation_complete activityId=${ev.activityId}`;
+    }
+    if (ev.type === "generation_failed") {
+      return `generation_failed${typeof ev.slotIndex === "number" ? ` slot=${ev.slotIndex + 1}` : ""} (${ev.error})`;
+    }
+    if (ev.type === "problem_started") {
+      return `problem_started slot=${ev.index + 1} (${ev.difficulty})`;
+    }
+    if (ev.type === "attempt_started") {
+      return `attempt_started slot=${ev.index + 1} attempt=${ev.attempt}/3`;
+    }
+    if (ev.type === "validation_started") {
+      return `validation_started slot=${ev.index + 1} attempt=${ev.attempt}/3`;
+    }
+    if (ev.type === "validation_failed") {
+      return `validation_failed slot=${ev.index + 1} attempt=${ev.attempt}/3`;
+    }
+    if (ev.type === "attempt_failed") {
+      return `attempt_failed slot=${ev.index + 1} attempt=${ev.attempt}/3 phase=${ev.phase}`;
+    }
+    if (ev.type === "problem_validated") {
+      return `problem_validated slot=${ev.index + 1}`;
+    }
+    if (ev.type === "problem_failed") {
+      return `problem_failed slot=${ev.index + 1}`;
+    }
+    if (ev.type === "heartbeat") {
+      return `heartbeat ts=${ev.ts}`;
+    }
+    return ev.type;
   }
 
   async function handleChatSend() {
@@ -230,6 +297,7 @@ export default function Home() {
       // Open structured progress stream (no prompts, no reasoning, no logs).
       setProgress(null);
       setProgressHint(null);
+      setProgressEvents([]);
       try {
         progressRef.current?.close();
       } catch {
@@ -255,93 +323,206 @@ export default function Home() {
           if (!ev || typeof ev.type !== "string") return;
           window.clearTimeout(hintTimer);
 
+          if (ev.type === "generation_started") {
+            setProgressEvents([ev]);
+          } else if (ev.type !== "heartbeat") {
+            setProgressEvents((prev) => {
+              const next = [...prev, ev];
+              return next.length > 30 ? next.slice(next.length - 30) : next;
+            });
+          }
+
           setProgress((prev) => {
             if (ev.type === "generation_started") {
-              const total = Math.max(1, ev.totalProblems);
-              const problems: ProblemProgress[] = Array.from({ length: total }, () => ({
-                phase: "queued",
-                attempt: null,
+              const total = Math.max(1, ev.totalSlots ?? ev.totalProblems ?? 1);
+              const slots: SlotProgress[] = Array.from({ length: total }, () => ({
+                stage: "queued",
+                attempt: 0,
                 difficulty: null,
+                topic: null,
+                language: null,
+                stageDone: { llm: false, contract: false, docker: false },
                 lastFailure: null,
               }));
-              return { totalProblems: total, run: ev.run ?? 1, problems, error: null };
+              return { totalSlots: total, run: ev.run ?? 1, slots, error: null, lastHeartbeatTs: null };
             }
 
             if (!prev) return prev;
 
             const next: GenerationProgressState = {
               ...prev,
-              problems: prev.problems.map((p) => ({ ...p })),
+              slots: prev.slots.map((p) => ({
+                ...p,
+                stageDone: { ...p.stageDone },
+                lastFailure: p.lastFailure ? { ...p.lastFailure } : null,
+              })),
             };
 
-            if (ev.type === "problem_started") {
-              const p = next.problems[ev.index];
+            if (ev.type === "heartbeat") {
+              next.lastHeartbeatTs = ev.ts;
+              return next;
+            }
+
+            const getSlot = (slotIndex: number) => next.slots[slotIndex];
+
+            if (ev.type === "slot_started") {
+              const p = getSlot(ev.slotIndex);
               if (p) {
                 p.difficulty = ev.difficulty;
-                p.phase = "generating";
-                p.attempt = null;
+                p.topic = ev.topic;
+                p.language = ev.language;
+                if (p.stage === "queued") p.stage = "llm";
+              }
+              return next;
+            }
+
+            if (ev.type === "slot_llm_attempt_started") {
+              const p = getSlot(ev.slotIndex);
+              if (p) {
+                p.stage = "llm";
+                p.attempt = ev.attempt;
+                p.stageDone = { llm: false, contract: false, docker: false };
+                p.lastFailure = null;
+              }
+              return next;
+            }
+
+            if (ev.type === "slot_contract_validated") {
+              const p = getSlot(ev.slotIndex);
+              if (p) {
+                p.stage = "docker";
+                p.attempt = ev.attempt;
+                p.stageDone.llm = true;
+                p.stageDone.contract = true;
+                p.lastFailure = null;
+              }
+              return next;
+            }
+
+            if (ev.type === "slot_contract_failed") {
+              const p = getSlot(ev.slotIndex);
+              if (p) {
+                p.stage = "contract";
+                p.attempt = ev.attempt;
+                p.lastFailure = { stage: "contract", message: ev.shortError };
+              }
+              return next;
+            }
+
+            if (ev.type === "slot_docker_validation_started") {
+              const p = getSlot(ev.slotIndex);
+              if (p) {
+                p.stage = "docker";
+                p.attempt = ev.attempt;
+                p.stageDone.llm = true;
+                p.stageDone.contract = true;
+                p.lastFailure = null;
+              }
+              return next;
+            }
+
+            if (ev.type === "slot_docker_validation_failed") {
+              const p = getSlot(ev.slotIndex);
+              if (p) {
+                p.stage = "docker";
+                p.attempt = ev.attempt;
+                p.lastFailure = { stage: "docker", message: ev.shortError };
+              }
+              return next;
+            }
+
+            if (ev.type === "slot_completed") {
+              const p = getSlot(ev.slotIndex);
+              if (p) {
+                p.stage = "done";
+                p.stageDone = { llm: true, contract: true, docker: true };
+                p.lastFailure = null;
+              }
+              return next;
+            }
+
+            if (ev.type === "problem_started") {
+              const p = getSlot(ev.index);
+              if (p) {
+                p.difficulty = ev.difficulty;
+                p.stage = "llm";
+                p.attempt = 0;
+                p.stageDone = { llm: false, contract: false, docker: false };
                 p.lastFailure = null;
               }
               return next;
             }
 
             if (ev.type === "attempt_started") {
-              const p = next.problems[ev.index];
+              const p = getSlot(ev.index);
               if (p) {
-                p.phase = "generating";
+                p.stage = "llm";
                 p.attempt = ev.attempt;
+                p.stageDone = { llm: false, contract: false, docker: false };
+                p.lastFailure = null;
               }
               return next;
             }
 
             if (ev.type === "validation_started") {
-              const p = next.problems[ev.index];
+              const p = getSlot(ev.index);
               if (p) {
-                p.phase = "validating";
+                p.stage = "docker";
                 p.attempt = ev.attempt;
+                p.stageDone.llm = true;
+                p.stageDone.contract = true;
+                p.lastFailure = null;
               }
               return next;
             }
 
             if (ev.type === "validation_failed") {
-              const p = next.problems[ev.index];
+              const p = getSlot(ev.index);
               if (p) {
-                p.phase = "retrying";
+                p.stage = "docker";
                 p.attempt = ev.attempt;
-                p.lastFailure = "validation";
+                p.lastFailure = { stage: "docker", message: "Docker validation failed." };
               }
               return next;
             }
 
             if (ev.type === "attempt_failed") {
-              const p = next.problems[ev.index];
+              const p = getSlot(ev.index);
               if (p) {
-                p.phase = "retrying";
                 p.attempt = ev.attempt;
-                p.lastFailure = ev.phase === "validate" ? "validation" : "generation";
+                p.lastFailure =
+                  ev.phase === "validate"
+                    ? { stage: "docker", message: "Docker validation failed." }
+                    : { stage: "contract", message: "Contract validation failed." };
               }
               return next;
             }
 
             if (ev.type === "problem_validated") {
-              const p = next.problems[ev.index];
+              const p = getSlot(ev.index);
               if (p) {
-                p.phase = "validated";
+                p.stage = "done";
+                p.stageDone = { llm: true, contract: true, docker: true };
                 p.lastFailure = null;
               }
               return next;
             }
 
             if (ev.type === "problem_failed") {
-              const p = next.problems[ev.index];
-              if (p) p.phase = "failed";
+              const p = getSlot(ev.index);
+              if (p) p.stage = "failed";
               return next;
             }
 
             if (ev.type === "generation_failed") {
               next.error = ev.error || "Generation failed.";
-              for (const p of next.problems) {
-                if (p.phase !== "validated") p.phase = "failed";
+              if (typeof ev.slotIndex === "number") {
+                const p = getSlot(ev.slotIndex);
+                if (p && p.stage !== "done") p.stage = "failed";
+              } else {
+                for (const p of next.slots) {
+                  if (p.stage !== "done") p.stage = "failed";
+                }
               }
               return next;
             }
@@ -610,15 +791,36 @@ export default function Home() {
                                   : "border-slate-200 bg-white/40"
                               }`}
                             >
-                              {progress.problems.map((p, i) => {
-                                const percent = renderProblemPercent(p);
-                                const active = p.phase === "generating" || p.phase === "validating" || p.phase === "retrying";
+                              {progress.slots.map((p, i) => {
+                                const percent = renderSlotPercent(p);
+                                const active = p.stage !== "queued" && p.stage !== "done" && p.stage !== "failed";
+                                const stages = [
+                                  {
+                                    label: "LLM",
+                                    active: p.stage === "llm",
+                                    done: p.stageDone.llm,
+                                    failed: false,
+                                  },
+                                  {
+                                    label: "Contract",
+                                    active: p.stage === "contract",
+                                    done: p.stageDone.contract,
+                                    failed: p.lastFailure?.stage === "contract" && p.stage === "contract",
+                                  },
+                                  {
+                                    label: "Docker",
+                                    active: p.stage === "docker",
+                                    done: p.stageDone.docker,
+                                    failed: p.lastFailure?.stage === "docker",
+                                  },
+                                  { label: "Done", active: p.stage === "done", done: p.stage === "done", failed: false },
+                                ] as const;
                                 return (
                                   <div key={i} className="space-y-1">
                                     <div className="flex items-center justify-between gap-3 text-[12px]">
                                       <div className={`truncate ${active ? "font-medium" : ""}`}>
-                                        Problem {i + 1}/{progress.totalProblems}
-                                        {p.difficulty ? ` — ${p.difficulty}` : ""}
+                                        Problem {i + 1}/{progress.totalSlots}
+                                        {p.difficulty && p.topic ? ` (${p.difficulty} — ${p.topic})` : p.difficulty ? ` (${p.difficulty})` : ""}
                                       </div>
                                       <div className={`shrink-0 tabular-nums ${active ? "animate-pulse" : "opacity-80"}`}>
                                         {percent}%
@@ -626,8 +828,31 @@ export default function Home() {
                                     </div>
                                     <div className="flex items-center justify-between gap-3 text-[11px] opacity-80">
                                       <div className={`truncate ${active ? "animate-pulse" : ""}`}>
-                                        {renderProblemStatus(p)}
+                                        {renderSlotStatus(p)}
                                       </div>
+                                      <div className="shrink-0 tabular-nums">
+                                        {p.attempt ? `Attempt ${p.attempt}/3` : ""}
+                                      </div>
+                                    </div>
+                                    <div className="flex items-center gap-1 text-[10px] opacity-80">
+                                      {stages.map((s) => {
+                                        const bg = s.failed
+                                          ? "bg-rose-500"
+                                          : s.done
+                                            ? "bg-emerald-500"
+                                            : s.active
+                                              ? "bg-blue-500"
+                                              : darkMode
+                                                ? "bg-slate-800"
+                                                : "bg-slate-200";
+                                        const text = darkMode ? "text-slate-200" : "text-slate-700";
+                                        return (
+                                          <div key={s.label} className="flex items-center gap-1">
+                                            <div className={`h-1.5 w-6 rounded-full ${bg}`} />
+                                            <div className={text}>{s.label}</div>
+                                          </div>
+                                        );
+                                      })}
                                     </div>
                                     <div
                                       className={`h-1.5 w-full overflow-hidden rounded-full ${
@@ -636,7 +861,7 @@ export default function Home() {
                                     >
                                       <div
                                         className={`h-full rounded-full transition-[width] duration-300 ${
-                                          p.phase === "failed" ? "bg-rose-500" : "bg-emerald-500"
+                                          p.stage === "failed" ? "bg-rose-500" : "bg-emerald-500"
                                         }`}
                                         style={{ width: `${percent}%` }}
                                       />
@@ -645,6 +870,27 @@ export default function Home() {
                                 );
                               })}
                             </div>
+
+                            <details
+                              className={`rounded-xl border p-3 text-[11px] ${
+                                darkMode ? "border-slate-700 bg-slate-950/40" : "border-slate-200 bg-white/40"
+                              }`}
+                            >
+                              <summary className={`cursor-pointer select-none ${darkMode ? "text-slate-200" : "text-slate-700"}`}>
+                                Details ({progressEvents.length})
+                              </summary>
+                              <div className={`mt-2 space-y-1 ${darkMode ? "text-slate-200" : "text-slate-700"}`}>
+                                {progressEvents.length === 0 ? (
+                                  <div className="opacity-70">No events yet.</div>
+                                ) : (
+                                  progressEvents.map((ev, idx) => (
+                                    <div key={idx} className="font-mono opacity-80">
+                                      {formatProgressEvent(ev)}
+                                    </div>
+                                  ))
+                                )}
+                              </div>
+                            </details>
                           </>
                         ) : (
                           <div className="text-[11px] opacity-70">Waiting for progress events…</div>
