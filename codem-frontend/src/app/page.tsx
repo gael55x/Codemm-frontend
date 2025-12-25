@@ -814,14 +814,20 @@ export default function Home() {
               </div>
               <select
                 value={learningMode}
-                onChange={(e) => setLearningMode(e.target.value as LearningMode)}
-                disabled={generationLocked || messages.length > 0}
+                onChange={(e) => {
+                  const next = e.target.value as LearningMode;
+                  if (generationLocked) return;
+                  if ((messages.length > 0 || specReady) && next !== learningMode) {
+                    const ok = window.confirm("Switch learning mode? This will start a new session and reset the current chat/spec.");
+                    if (!ok) return;
+                  }
+                  setLearningMode(next);
+                }}
+                disabled={generationLocked || isBusy}
                 title={
                   generationLocked
                     ? "Learning mode is locked once generation starts."
-                    : messages.length > 0
-                    ? "Learning mode is set when the session is created. Start a new session to switch."
-                    : ""
+                    : "Switching learning mode starts a new session."
                 }
                 className={`rounded-lg border px-3 py-2 text-xs outline-none transition disabled:cursor-not-allowed disabled:opacity-50 ${
                   darkMode
