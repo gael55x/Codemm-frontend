@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useSpecBuilderUX } from "@/lib/specBuilderUx";
@@ -46,6 +47,7 @@ export default function Home() {
   const { interpretResponse, formatSlotPrompt, normalizeInput, activeSlot } = useSpecBuilderUX();
   const [loading, setLoading] = useState(false);
   const [chatInput, setChatInput] = useState("");
+  const [hasInteracted, setHasInteracted] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [chatLoading, setChatLoading] = useState(false);
   const [darkMode, setDarkMode] = useState(false);
@@ -58,6 +60,13 @@ export default function Home() {
   const [progress, setProgress] = useState<GenerationProgressState | null>(null);
   const [progressHint, setProgressHint] = useState<string | null>(null);
   const progressRef = useRef<EventSource | null>(null);
+
+  const handleLogoClick = () => {
+    if (typeof window === "undefined") return;
+    if (window.location.pathname === "/") {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+  };
 
   useEffect(() => {
     const stored = localStorage.getItem("codem-theme");
@@ -90,6 +99,7 @@ export default function Home() {
         setGenerationLocked(false);
         setMessages([]);
         setChatInput("");
+        setHasInteracted(false);
 
         const res = await fetch(`${BACKEND_URL}/sessions`, {
           method: "POST",
@@ -171,6 +181,7 @@ export default function Home() {
     if (!normalized.ok) return;
     const userMessage = rawInput;
 
+    setHasInteracted(true);
     setMessages((prev) => [...prev, { role: "user", content: userMessage }]);
     setChatInput("");
     setChatLoading(true);
@@ -534,6 +545,7 @@ export default function Home() {
   }
 
   const isBusy = chatLoading || loading;
+  const isPromptExpanded = hasInteracted || chatInput.trim().length > 0;
   const displayName =
     (typeof user?.displayName === "string" && user.displayName.trim()
       ? user.displayName
@@ -545,7 +557,7 @@ export default function Home() {
 
   return (
     <div
-      className={`relative min-h-screen overflow-hidden transition-colors ${
+      className={`relative min-h-screen overflow-x-hidden transition-colors ${
         darkMode ? "bg-slate-950 text-slate-50" : "bg-slate-50 text-slate-900"
       }`}
     >
@@ -574,15 +586,23 @@ export default function Home() {
       </div>
 
       <div className="relative mx-auto flex min-h-screen max-w-6xl flex-col px-6 pb-16">
-        <header className="flex flex-col gap-4 py-6 lg:flex-row lg:items-center lg:justify-between">
-          <div className="flex items-center gap-3">
-            
+        <header
+          className={`sticky top-0 z-30 flex flex-col gap-4 py-6 lg:flex-row lg:items-center lg:justify-between transition-all duration-300 ${
+            isPromptExpanded ? "translate-y-0 opacity-100" : "opacity-100 translate-y-0"
+          } ${darkMode ? "bg-slate-950/90" : "bg-slate-50/95"} backdrop-blur`}
+        >
+          <Link
+            href="/"
+            onClick={handleLogoClick}
+            className="flex items-center gap-3 hover:opacity-90 transition focus:outline-none cursor-pointer"
+            aria-label="Go to home"
+          >
             <div>
               <div className="logo-font text-xl font-extrabold tracking-tight">Codemm</div>
             </div>
-          </div>
+          </Link>
 
-          
+
 
           <div className="flex items-center gap-3">
             <button
@@ -634,54 +654,70 @@ export default function Home() {
           </div>
         </header>
 
-        <main className="flex flex-1 flex-col py-8 items-center text-center">
-          <p className={`text-base font-semibold ${darkMode ? "text-sky-200" : "text-sky-600"}`}>Your AI</p>
-          <h1
-            className={`mt-2 text-4xl font-semibold leading-tight tracking-tight sm:text-5xl lg:text-6xl ${
-              darkMode ? "text-white" : "text-slate-900"
+        <main
+          className={`flex flex-1 flex-col justify-start gap-4 ${
+            isPromptExpanded ? "pt-4 sm:pt-6" : "py-8"
+          } ${isPromptExpanded ? "text-left" : "text-center"} transition-all duration-300`}
+        >
+          {!isPromptExpanded && (
+            <div className="flex flex-col items-center gap-4 transition-all duration-300 opacity-100 translate-y-0">
+              <p className={`text-base font-semibold ${darkMode ? "text-sky-200" : "text-sky-600"}`}>Your AI</p>
+              <h1
+                className={`text-4xl font-semibold leading-tight tracking-tight sm:text-5xl lg:text-6xl ${
+                  darkMode ? "text-white" : "text-slate-900"
+                }`}
+              >
+                Coding and Exam Buddy
+              </h1>
+              <p className={`max-w-3xl text-lg ${darkMode ? "text-slate-300" : "text-slate-600"}`}>
+                Generate personalized practice problems in seconds. Stop searching, start solving.
+              </p>
+
+              <div className="mt-10 flex flex-wrap items-center justify-center gap-3 text-sm">
+                {(["practice", "guided"] as LearningMode[]).map((mode) => (
+                  <button
+                    key={mode}
+                    onClick={() => {
+                      if (generationLocked) return;
+                      if ((messages.length > 0 || specReady) && mode !== learningMode) {
+                        const ok = window.confirm(
+                          "Switch learning mode? This will start a new session and reset the current chat/spec.",
+                        );
+                        if (!ok) return;
+                      }
+                      setLearningMode(mode);
+                    }}
+                    disabled={generationLocked || isBusy}
+                    className={`rounded-full border px-4 py-2 capitalize transition ${
+                      learningMode === mode
+                        ? "border-sky-500 bg-sky-50 text-sky-700 shadow-sm dark:border-sky-400/70 dark:bg-sky-900/30 dark:text-sky-100"
+                        : darkMode
+                          ? "border-slate-800 bg-slate-900 text-slate-200 hover:border-slate-700"
+                          : "border-slate-200 bg-white text-slate-700 hover:border-slate-300"
+                    } disabled:cursor-not-allowed disabled:opacity-60`}
+                  >
+                    {mode === "practice" ? "Practice Mode" : "Guided Mode (Beta)"}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <section
+            className={`relative w-full max-w-4xl mx-auto text-left transition-all duration-300 ${
+              isPromptExpanded ? "mt-2 sm:mt-4 -translate-y-2 sm:-translate-y-3" : "mt-10 translate-y-0"
             }`}
           >
-            Coding and Exam Buddy
-          </h1>
-          <p className={`mt-4 max-w-3xl text-lg ${darkMode ? "text-slate-300" : "text-slate-600"}`}>
-            Generate personalized practice problems in seconds. Stop searching, start solving.
-          </p>
-
-          <div className="mt-20 flex flex-wrap items-center justify-center gap-3 text-sm">
-            {(["practice", "guided"] as LearningMode[]).map((mode) => (
-              <button
-                key={mode}
-                onClick={() => {
-                  if (generationLocked) return;
-                  if ((messages.length > 0 || specReady) && mode !== learningMode) {
-                    const ok = window.confirm(
-                      "Switch learning mode? This will start a new session and reset the current chat/spec.",
-                    );
-                    if (!ok) return;
-                  }
-                  setLearningMode(mode);
-                }}
-                disabled={generationLocked || isBusy}
-                className={`rounded-full border px-4 py-2 capitalize transition ${
-                  learningMode === mode
-                    ? "border-sky-500 bg-sky-50 text-sky-700 shadow-sm dark:border-sky-400/70 dark:bg-sky-900/30 dark:text-sky-100"
-                    : darkMode
-                      ? "border-slate-800 bg-slate-900 text-slate-200 hover:border-slate-700"
-                      : "border-slate-200 bg-white text-slate-700 hover:border-slate-300"
-                } disabled:cursor-not-allowed disabled:opacity-60`}
-              >
-                {mode === "practice" ? "Practice Mode" : "Guided Mode (Beta)"}
-              </button>
-            ))}
-          </div>
-
-          <section className="relative mt-10 w-full max-w-4xl text-left">
             <div
-              className={`rounded-[28px] border shadow-xl backdrop-blur ${
+              className={`rounded-[28px] border shadow-xl backdrop-blur transition-all duration-300 ${
                 darkMode ? "border-slate-800 bg-slate-900/70" : "border-slate-200 bg-white/85"
-              }`}
+              } ${isPromptExpanded ? "ring-1 ring-slate-200/60 dark:ring-slate-800/60" : ""}`}
             >
-              <div className="max-h-80 space-y-3 overflow-y-auto px-5 py-5">
+              <div
+                className={`space-y-3 overflow-y-auto px-5 py-5 ${
+                  isPromptExpanded ? "max-h-[65vh] md:max-h-[70vh]" : "max-h-80"
+                }`}
+              >
                 {messages.length === 0 && (
                   <div
                     className={`rounded-2xl border px-4 py-3 text-sm ${
@@ -861,7 +897,7 @@ export default function Home() {
                 }`}
               >
                 <textarea
-                  className={`w-full resize-none rounded-2xl border px-4 py-3 text-sm outline-none transition focus:ring-1 ${
+                className={`w-full resize-none rounded-2xl border px-4 py-3 text-sm outline-none transition focus:ring-1 ${
                     darkMode
                       ? "border-slate-800 bg-slate-900 text-slate-100 placeholder-slate-500 focus:border-sky-400 focus:ring-sky-400"
                       : "border-slate-200 bg-white text-slate-900 placeholder-slate-400 focus:border-sky-500 focus:ring-sky-500"
@@ -869,11 +905,18 @@ export default function Home() {
                   placeholder="Start solving..."
                   rows={3}
                   value={chatInput}
-                  onChange={(e) => setChatInput(e.target.value)}
+                  onChange={(e) => {
+                    const next = e.target.value;
+                    setChatInput(next);
+                    if (next.trim().length > 0) setHasInteracted(true);
+                  }}
                   onKeyDown={(e) => {
                     if (e.key === "Enter" && !e.shiftKey) {
                       e.preventDefault();
-                      if (chatInput.trim()) handleChatSend();
+                      if (chatInput.trim()) {
+                        setHasInteracted(true);
+                        handleChatSend();
+                      }
                     }
                   }}
                   disabled={isBusy || specReady}
