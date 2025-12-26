@@ -578,7 +578,7 @@ export default function Home() {
           <div className="flex items-center gap-3">
             
             <div>
-              <div className="logo-font text-xl font-semibold tracking-tight">Codemm</div>
+              <div className="logo-font text-xl font-extrabold tracking-tight">Codemm</div>
             </div>
           </div>
 
@@ -928,7 +928,7 @@ export default function Home() {
                   disabled={isBusy || specReady}
                 />
 
-                <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="mt-3 flex flex-col items-end gap-3 sm:flex-row sm:items-center sm:justify-end">
                   
 
                   <div className="flex items-center gap-2">
@@ -941,7 +941,7 @@ export default function Home() {
                           : "bg-slate-900 hover:bg-black disabled:bg-slate-300"
                       } disabled:cursor-not-allowed disabled:opacity-60`}
                     >
-                      <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <svg className="h-4 w-4 rotate-90" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
                       </svg>
                       Send
