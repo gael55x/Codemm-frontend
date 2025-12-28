@@ -54,6 +54,8 @@ type Activity = {
   prompt: string;
   problems: Problem[];
   createdAt: string;
+  status?: "DRAFT" | "PUBLISHED";
+  timeLimitSeconds?: number | null;
 };
 
 type JudgeResult = {
@@ -292,6 +294,7 @@ export default function ActivityPage() {
 
   const [activity, setActivity] = useState<Activity | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [selectedProblemId, setSelectedProblemId] = useState<string | null>(
     null
   );
@@ -305,6 +308,8 @@ export default function ActivityPage() {
   });
   const [activeFilename, setActiveFilename] = useState<string>("Solution.java");
   const [entrypointClass, setEntrypointClass] = useState<string>("Main");
+  const [timeLimitSeconds, setTimeLimitSeconds] = useState<number | null>(null);
+  const [timerMode, setTimerMode] = useState<"countup" | "countdown">("countup");
   const [timerSeconds, setTimerSeconds] = useState(0);
   const [isTimerRunning, setIsTimerRunning] = useState(false);
   const [result, setResult] = useState<JudgeResult | RunResult | null>(null);
@@ -437,6 +442,7 @@ export default function ActivityPage() {
 
     async function load() {
       try {
+        setLoadError(null);
         const token = localStorage.getItem("codem-token");
         const headers: Record<string, string> = {};
         if (token) {
@@ -447,17 +453,11 @@ export default function ActivityPage() {
           headers,
         });
 
-        if (res.status === 401 || res.status === 403) {
-          // User is not authenticated or not authorized to view this activity.
-          router.push("/auth/login");
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          setLoadError(data?.error || "Failed to load activity.");
           return;
         }
-
-        if (!res.ok) {
-          throw new Error("Failed to load activity");
-        }
-
-        const data = await res.json();
         const act = data.activity as Activity | undefined;
         if (act) {
           setActivity(act);
@@ -466,10 +466,22 @@ export default function ActivityPage() {
             setSelectedProblemId(first.id);
             loadProblemIntoWorkspace(first);
           }
+
+          const limit = typeof act.timeLimitSeconds === "number" ? act.timeLimitSeconds : null;
+          if (typeof limit === "number" && limit > 0) {
+            setTimeLimitSeconds(limit);
+            setTimerMode("countdown");
+            setTimerSeconds(limit);
+          } else {
+            setTimeLimitSeconds(null);
+            setTimerMode("countup");
+            setTimerSeconds(0);
+          }
           setIsTimerRunning(true);
         }
       } catch (e) {
         console.error(e);
+        setLoadError("Failed to load activity.");
       } finally {
         setLoading(false);
       }
@@ -480,10 +492,16 @@ export default function ActivityPage() {
   useEffect(() => {
     if (!isTimerRunning) return;
     const id = setInterval(() => {
-      setTimerSeconds((s) => s + 1);
+      setTimerSeconds((s) => (timerMode === "countdown" ? Math.max(0, s - 1) : s + 1));
     }, 1000);
     return () => clearInterval(id);
-  }, [isTimerRunning]);
+  }, [isTimerRunning, timerMode]);
+
+  useEffect(() => {
+    if (timerMode !== "countdown") return;
+    if (timerSeconds > 0) return;
+    setIsTimerRunning(false);
+  }, [timerMode, timerSeconds]);
 
   const selectedProblem = activity?.problems.find(
     (p) => p.id === selectedProblemId
@@ -762,8 +780,23 @@ export default function ActivityPage() {
   if (!activity) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-slate-100 text-slate-900">
-        <div className="rounded-lg bg-white px-4 py-3 text-sm shadow">
-          Activity not found.
+        <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-4 shadow">
+          <div className="text-sm font-semibold text-slate-900">Couldn’t open this activity</div>
+          <div className="mt-1 text-sm text-slate-600">{loadError ?? "Activity not found."}</div>
+          <div className="mt-4 flex gap-2">
+            <button
+              onClick={() => (window.location.href = "/")}
+              className="rounded-full border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+            >
+              Home
+            </button>
+            <button
+              onClick={() => router.push("/auth/login")}
+              className="rounded-full bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800"
+            >
+              Log in
+            </button>
+          </div>
         </div>
       </div>
     );
@@ -800,8 +833,16 @@ export default function ActivityPage() {
             >
               Home
             </button>
+            {activity.status === "DRAFT" && (
+              <button
+                onClick={() => router.push(`/activity/${activityId}/review`)}
+                className="rounded-full border border-amber-300 bg-amber-50 px-3 py-1 text-xs font-medium text-amber-800 hover:bg-amber-100"
+              >
+                Draft • Edit
+              </button>
+            )}
             <div className="rounded-full bg-slate-100 px-4 py-1 text-xs font-medium text-slate-700">
-              Time&nbsp;{formatTime(timerSeconds)}
+              {timerMode === "countdown" ? "Left" : "Time"}&nbsp;{formatTime(timerSeconds)}
             </div>
           </div>
         </header>
@@ -822,7 +863,7 @@ export default function ActivityPage() {
                     loadProblemIntoWorkspace(p);
                     setResult(null);
                     setShowTests(false);
-                    setTimerSeconds(0);
+                    setTimerSeconds(timerMode === "countdown" ? (timeLimitSeconds ?? 0) : 0);
                     setIsTimerRunning(true);
                   }}
                   className={`flex flex-col rounded-xl border px-3 py-2 text-left text-sm transition ${
