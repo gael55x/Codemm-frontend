@@ -29,6 +29,12 @@ function clampInt(n: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, Math.trunc(n)));
 }
 
+function getErrorMessage(err: unknown, fallback: string): string {
+  if (err instanceof Error && typeof err.message === "string" && err.message.trim()) return err.message;
+  if (typeof err === "string" && err.trim()) return err;
+  return fallback;
+}
+
 export default function ActivityReviewPage() {
   const params = useParams<{ id: string }>();
   const activityId = params.id;
@@ -43,6 +49,10 @@ export default function ActivityReviewPage() {
 
   const [saving, setSaving] = useState(false);
   const [publishing, setPublishing] = useState(false);
+  const [editingProblemId, setEditingProblemId] = useState<string | null>(null);
+  const [editInstruction, setEditInstruction] = useState<string>("");
+  const [editing, setEditing] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
 
   const shareUrl = useMemo(() => {
@@ -81,8 +91,8 @@ export default function ActivityReviewPage() {
             ? String(Math.max(1, Math.round(act.timeLimitSeconds / 60)))
             : "0";
         setTimeLimitMinutes(mins);
-      } catch (e: any) {
-        setError(e?.message ?? "Failed to load activity.");
+      } catch (e: unknown) {
+        setError(getErrorMessage(e, "Failed to load activity."));
       } finally {
         setLoading(false);
       }
@@ -150,8 +160,8 @@ export default function ActivityReviewPage() {
 
       setActivity((prev) => (prev ? { ...prev, status: "PUBLISHED" } : prev));
       setToast("Published. You can share the link now.");
-    } catch (e: any) {
-      setError(e?.message ?? "Failed to publish.");
+    } catch (e: unknown) {
+      setError(getErrorMessage(e, "Failed to publish."));
     } finally {
       setPublishing(false);
     }
@@ -164,6 +174,50 @@ export default function ActivityReviewPage() {
       setToast("Link copied.");
     } catch {
       setToast("Could not copy link.");
+    }
+  }
+
+  async function editProblemWithAi(problemId: string) {
+    const token = localStorage.getItem("codem-token");
+    if (!token) {
+      router.push("/auth/login");
+      return;
+    }
+
+    const instruction = editInstruction.trim();
+    if (!instruction) {
+      setEditError("Tell the AI what to change.");
+      return;
+    }
+
+    setEditing(true);
+    setEditError(null);
+    setToast(null);
+    try {
+      const res = await fetch(`${BACKEND_URL}/activities/${activityId}/problems/${problemId}/ai-edit`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ instruction }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data?.error || `Failed to edit problem (${res.status})`);
+      }
+
+      const act = data?.activity as Activity | undefined;
+      if (act) {
+        setActivity(act);
+        setToast("Problem updated.");
+        setEditingProblemId(null);
+        setEditInstruction("");
+      }
+    } catch (e: unknown) {
+      setEditError(getErrorMessage(e, "Failed to edit problem."));
+    } finally {
+      setEditing(false);
     }
   }
 
@@ -319,8 +373,64 @@ export default function ActivityReviewPage() {
                     <span className="ml-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
                       {(p.language ?? "java").toUpperCase()}
                     </span>
+                    {isDraft && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          setEditError(null);
+                          setToast(null);
+                          setEditingProblemId((cur) => (cur === p.id ? null : p.id));
+                          setEditInstruction("");
+                        }}
+                        className="ml-3 rounded-full border border-slate-300 bg-white px-2 py-0.5 text-[11px] font-semibold text-slate-700 hover:bg-slate-50"
+                      >
+                        AI edit
+                      </button>
+                    )}
                   </summary>
                   <div className="mt-2 text-sm text-slate-700 whitespace-pre-line">{p.description}</div>
+
+                  {isDraft && editingProblemId === p.id && (
+                    <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
+                      <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                        Edit with AI
+                      </div>
+                      <p className="mt-1 text-xs text-slate-600">
+                        Describe what to change. The AI will regenerate the problem and its tests.
+                      </p>
+                      <textarea
+                        value={editInstruction}
+                        onChange={(e) => setEditInstruction(e.target.value)}
+                        rows={4}
+                        className="mt-2 w-full resize-none rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-slate-400 focus:outline-none"
+                        placeholder='Example: "Make it accept duplicates and add edge cases for empty input."'
+                      />
+                      {editError && <div className="mt-2 text-xs text-red-600">{editError}</div>}
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          disabled={editing}
+                          onClick={() => void editProblemWithAi(p.id)}
+                          className="rounded-full bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-60"
+                        >
+                          {editing ? "Updating…" : "Update problem"}
+                        </button>
+                        <button
+                          type="button"
+                          disabled={editing}
+                          onClick={() => {
+                            setEditingProblemId(null);
+                            setEditInstruction("");
+                            setEditError(null);
+                          }}
+                          className="rounded-full border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-60"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </details>
               ))}
             </div>
@@ -330,4 +440,3 @@ export default function ActivityReviewPage() {
     </div>
   );
 }
-
