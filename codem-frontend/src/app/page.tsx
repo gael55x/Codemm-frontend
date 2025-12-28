@@ -936,7 +936,7 @@ export default function Home() {
                   darkMode ? "text-white" : "text-slate-900"
                 }`}
               >
-                Coding And Exam Buddy
+                Coding Exam Buddy
               </h1>
               <p className={`max-w-3xl text-lg ${darkMode ? "text-slate-300" : "text-slate-600"}`}>
                 Generate personalized practice problems in seconds. Stop searching, start solving.
