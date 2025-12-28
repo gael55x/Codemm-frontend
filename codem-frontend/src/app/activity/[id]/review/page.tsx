@@ -1,0 +1,333 @@
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
+import { useParams, useRouter } from "next/navigation";
+
+type Problem = {
+  id: string;
+  title: string;
+  description: string;
+  language?: string;
+  difficulty?: string;
+  topic_tag?: string;
+};
+
+type Activity = {
+  id: string;
+  title: string;
+  prompt: string;
+  problems: Problem[];
+  createdAt: string;
+  status?: "DRAFT" | "PUBLISHED";
+  timeLimitSeconds?: number | null;
+};
+
+const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:4000";
+
+function clampInt(n: number, min: number, max: number): number {
+  if (!Number.isFinite(n)) return min;
+  return Math.max(min, Math.min(max, Math.trunc(n)));
+}
+
+export default function ActivityReviewPage() {
+  const params = useParams<{ id: string }>();
+  const activityId = params.id;
+  const router = useRouter();
+
+  const [loading, setLoading] = useState(true);
+  const [activity, setActivity] = useState<Activity | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const [title, setTitle] = useState("");
+  const [timeLimitMinutes, setTimeLimitMinutes] = useState<string>("0");
+
+  const [saving, setSaving] = useState(false);
+  const [publishing, setPublishing] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
+
+  const shareUrl = useMemo(() => {
+    if (typeof window === "undefined") return null;
+    if (!activityId) return null;
+    return `${window.location.origin}/activity/${activityId}`;
+  }, [activityId]);
+
+  useEffect(() => {
+    async function load() {
+      setLoading(true);
+      setError(null);
+      try {
+        const token = localStorage.getItem("codem-token");
+        if (!token) {
+          router.push("/auth/login");
+          return;
+        }
+
+        const res = await fetch(`${BACKEND_URL}/activities/${activityId}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const data = await res.json().catch(() => ({}));
+
+        if (!res.ok) {
+          throw new Error(data?.error || `Failed to load activity (${res.status})`);
+        }
+
+        const act = data?.activity as Activity | undefined;
+        if (!act) throw new Error("Failed to load activity.");
+
+        setActivity(act);
+        setTitle(act.title ?? "");
+        const mins =
+          typeof act.timeLimitSeconds === "number" && act.timeLimitSeconds > 0
+            ? String(Math.max(1, Math.round(act.timeLimitSeconds / 60)))
+            : "0";
+        setTimeLimitMinutes(mins);
+      } catch (e: any) {
+        setError(e?.message ?? "Failed to load activity.");
+      } finally {
+        setLoading(false);
+      }
+    }
+    void load();
+  }, [activityId, router]);
+
+  async function saveDraft(): Promise<Activity | null> {
+    const token = localStorage.getItem("codem-token");
+    if (!token) {
+      router.push("/auth/login");
+      return null;
+    }
+
+    const mins = clampInt(Number.parseInt(timeLimitMinutes || "0", 10), 0, 8 * 60);
+    const timeLimitSeconds = mins > 0 ? mins * 60 : null;
+
+    setSaving(true);
+    setToast(null);
+    try {
+      const res = await fetch(`${BACKEND_URL}/activities/${activityId}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          title: title.trim() || "Untitled activity",
+          timeLimitSeconds,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data?.error || `Failed to save (${res.status})`);
+      }
+      const act = data?.activity as Activity | undefined;
+      if (act) setActivity(act);
+      setToast("Saved.");
+      return act ?? null;
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function publish() {
+    setPublishing(true);
+    setToast(null);
+    try {
+      await saveDraft();
+
+      const token = localStorage.getItem("codem-token");
+      if (!token) {
+        router.push("/auth/login");
+        return;
+      }
+
+      const res = await fetch(`${BACKEND_URL}/activities/${activityId}/publish`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data?.error || `Failed to publish (${res.status})`);
+      }
+
+      setActivity((prev) => (prev ? { ...prev, status: "PUBLISHED" } : prev));
+      setToast("Published. You can share the link now.");
+    } catch (e: any) {
+      setError(e?.message ?? "Failed to publish.");
+    } finally {
+      setPublishing(false);
+    }
+  }
+
+  async function copyShareLink() {
+    if (!shareUrl) return;
+    try {
+      await navigator.clipboard.writeText(shareUrl);
+      setToast("Link copied.");
+    } catch {
+      setToast("Could not copy link.");
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-slate-100 text-slate-900">
+        <div className="rounded-lg bg-white px-4 py-3 text-sm shadow">Loading…</div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-slate-100 text-slate-900">
+        <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-4 shadow">
+          <div className="text-sm font-semibold text-slate-900">Couldn’t open this activity</div>
+          <div className="mt-1 text-sm text-slate-600">{error}</div>
+          <div className="mt-4 flex gap-2">
+            <button
+              onClick={() => router.push("/")}
+              className="rounded-full border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+            >
+              Home
+            </button>
+            <button
+              onClick={() => router.push("/auth/login")}
+              className="rounded-full bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800"
+            >
+              Log in
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (!activity) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-slate-100 text-slate-900">
+        <div className="rounded-lg bg-white px-4 py-3 text-sm shadow">Activity not found.</div>
+      </div>
+    );
+  }
+
+  const isDraft = (activity.status ?? "PUBLISHED") === "DRAFT";
+
+  return (
+    <div className="min-h-screen bg-white text-slate-900">
+      <div className="mx-auto flex min-h-screen max-w-4xl flex-col px-4 py-6">
+        <header className="mb-5 flex flex-col gap-3 border-b border-slate-200 pb-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Activity Review</p>
+            <div className="mt-1 flex flex-wrap items-center gap-2">
+              <h1 className="text-xl font-semibold tracking-tight">{activity.title}</h1>
+              <span
+                className={`rounded-full px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide ${
+                  isDraft ? "bg-amber-100 text-amber-800" : "bg-emerald-100 text-emerald-800"
+                }`}
+              >
+                {isDraft ? "Draft" : "Published"}
+              </span>
+            </div>
+            <p className="mt-1 text-xs text-slate-500">
+              Preview and edit before publishing. Timer applies per problem.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button
+              onClick={() => router.push("/")}
+              className="rounded-full border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+            >
+              Home
+            </button>
+            <button
+              onClick={() => router.push(`/activity/${activityId}`)}
+              className="rounded-full border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+            >
+              Open
+            </button>
+          </div>
+        </header>
+
+        <main className="grid gap-4 md:grid-cols-[1.2fr_1fr]">
+          <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+            <h2 className="text-sm font-semibold text-slate-900">Settings</h2>
+
+            <label className="mt-3 block text-xs font-medium text-slate-700">Title</label>
+            <input
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              disabled={!isDraft || saving || publishing}
+              className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-blue-500 disabled:bg-slate-50"
+              placeholder="Activity title"
+            />
+
+            <label className="mt-3 block text-xs font-medium text-slate-700">Timer per problem (minutes)</label>
+            <input
+              value={timeLimitMinutes}
+              onChange={(e) => setTimeLimitMinutes(e.target.value)}
+              disabled={!isDraft || saving || publishing}
+              inputMode="numeric"
+              className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-blue-500 disabled:bg-slate-50"
+              placeholder="0"
+            />
+            <p className="mt-1 text-xs text-slate-500">Use 0 for no timer (stopwatch).</p>
+
+            <div className="mt-4 flex flex-wrap items-center gap-2">
+              <button
+                onClick={() => void saveDraft()}
+                disabled={!isDraft || saving || publishing}
+                className="rounded-full bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-60"
+              >
+                {saving ? "Saving…" : "Save draft"}
+              </button>
+              <button
+                onClick={() => void publish()}
+                disabled={!isDraft || saving || publishing}
+                className="rounded-full bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-500 disabled:opacity-60"
+              >
+                {publishing ? "Publishing…" : "Publish"}
+              </button>
+              {toast && <span className="text-sm text-slate-600">{toast}</span>}
+            </div>
+
+            {!isDraft && shareUrl && (
+              <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3">
+                <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Share link</div>
+                <div className="mt-1 flex items-center gap-2">
+                  <code className="flex-1 overflow-x-auto rounded-lg bg-white px-2 py-1 text-xs text-slate-800">
+                    {shareUrl}
+                  </code>
+                  <button
+                    onClick={() => void copyShareLink()}
+                    className="rounded-full border border-slate-300 bg-white px-3 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                  >
+                    Copy
+                  </button>
+                </div>
+              </div>
+            )}
+          </section>
+
+          <section className="rounded-2xl border border-slate-200 bg-slate-50 p-4 shadow-sm">
+            <h2 className="text-sm font-semibold text-slate-900">Preview</h2>
+            <p className="mt-1 text-xs text-slate-600">
+              {activity.problems.length} problems
+            </p>
+            <div className="mt-3 space-y-2">
+              {activity.problems.map((p) => (
+                <details key={p.id} className="rounded-xl border border-slate-200 bg-white px-3 py-2">
+                  <summary className="cursor-pointer text-sm font-medium text-slate-900">
+                    {p.title}
+                    <span className="ml-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                      {(p.language ?? "java").toUpperCase()}
+                    </span>
+                  </summary>
+                  <div className="mt-2 text-sm text-slate-700 whitespace-pre-line">{p.description}</div>
+                </details>
+              ))}
+            </div>
+          </section>
+        </main>
+      </div>
+    </div>
+  );
+}
+

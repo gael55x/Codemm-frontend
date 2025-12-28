@@ -635,7 +635,7 @@ export default function Home() {
         } catch {
           // ignore
         }
-        router.push(`/activity/${data.activityId}`);
+        router.push(`/activity/${data.activityId}/review`);
       } else if (data?.error) {
         setMessages((prev) => [
           ...prev,
@@ -667,7 +667,7 @@ export default function Home() {
   }
 
   const isBusy = chatLoading || loading;
-  const isPromptExpanded = hasInteracted || chatInput.trim().length > 0 || messages.length > 0;
+  const isPromptExpanded = hasInteracted || chatInput.trim().length > 0;
   const displayName =
     (typeof user?.displayName === "string" && user.displayName.trim()
       ? user.displayName
@@ -727,6 +727,44 @@ export default function Home() {
 
 
           <div className="flex items-center gap-3">
+            <div
+              className={`flex items-center rounded-full border p-1 text-xs font-semibold ${
+                darkMode ? "border-slate-800 bg-slate-900/60" : "border-slate-200 bg-white/80"
+              }`}
+              role="tablist"
+              aria-label="Learning mode"
+            >
+              {(["practice", "guided"] as LearningMode[]).map((mode) => {
+                const active = learningMode === mode;
+                return (
+                  <button
+                    key={mode}
+                    role="tab"
+                    aria-selected={active}
+                    onClick={() => {
+                      if (generationLocked) return;
+                      if ((hasInteracted || specReady) && mode !== learningMode) {
+                        const ok = window.confirm(
+                          "Switch learning mode? This will start a new session and reset the current chat/spec.",
+                        );
+                        if (!ok) return;
+                      }
+                      void startNewSession(mode);
+                    }}
+                    disabled={generationLocked || isBusy}
+                    className={`rounded-full px-3 py-2 transition disabled:cursor-not-allowed disabled:opacity-60 ${
+                      active
+                        ? "bg-sky-600 text-white shadow-sm"
+                        : darkMode
+                          ? "text-slate-200 hover:bg-slate-800"
+                          : "text-slate-700 hover:bg-slate-100"
+                    }`}
+                  >
+                    {mode === "practice" ? "Practice" : "Guided"}
+                  </button>
+                );
+              })}
+            </div>
             {user && (
               <div className="relative">
                 <button
@@ -898,39 +936,11 @@ export default function Home() {
                   darkMode ? "text-white" : "text-slate-900"
                 }`}
               >
-                Coding and Exam Buddy
+                Coding And Exam Buddy
               </h1>
               <p className={`max-w-3xl text-lg ${darkMode ? "text-slate-300" : "text-slate-600"}`}>
                 Generate personalized practice problems in seconds. Stop searching, start solving.
               </p>
-
-              <div className="mt-10 flex flex-wrap items-center justify-center gap-3 text-sm">
-                {(["practice", "guided"] as LearningMode[]).map((mode) => (
-                  <button
-                    key={mode}
-                    onClick={() => {
-                      if (generationLocked) return;
-                      if ((messages.length > 0 || specReady) && mode !== learningMode) {
-                        const ok = window.confirm(
-                          "Switch learning mode? This will start a new session and reset the current chat/spec.",
-                        );
-                        if (!ok) return;
-                      }
-                      void startNewSession(mode);
-                    }}
-                    disabled={generationLocked || isBusy}
-                    className={`rounded-full border px-4 py-2 capitalize transition ${
-                      learningMode === mode
-                        ? "border-sky-500 bg-sky-50 text-sky-700 shadow-sm dark:border-sky-400/70 dark:bg-sky-900/30 dark:text-sky-100"
-                        : darkMode
-                          ? "border-slate-800 bg-slate-900 text-slate-200 hover:border-slate-700"
-                          : "border-slate-200 bg-white text-slate-700 hover:border-slate-300"
-                    } disabled:cursor-not-allowed disabled:opacity-60`}
-                  >
-                    {mode === "practice" ? "Practice Mode" : "Guided Mode (Beta)"}
-                  </button>
-                ))}
-              </div>
             </div>
           )}
 
