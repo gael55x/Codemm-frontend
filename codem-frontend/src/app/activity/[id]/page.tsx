@@ -287,6 +287,14 @@ function sortTestCaseNames(names: string[]): string[] {
   });
 }
 
+type PersistedTimerStateV1 = {
+  v: 1;
+  mode: "countup" | "countdown";
+  limitSeconds: number | null;
+  baseSeconds: number;
+  startedAtMs: number | null;
+};
+
 export default function ActivityPage() {
   const params = useParams<{ id: string }>();
   const activityId = params.id;
@@ -310,8 +318,10 @@ export default function ActivityPage() {
   const [entrypointClass, setEntrypointClass] = useState<string>("Main");
   const [timeLimitSeconds, setTimeLimitSeconds] = useState<number | null>(null);
   const [timerMode, setTimerMode] = useState<"countup" | "countdown">("countup");
-  const [timerSeconds, setTimerSeconds] = useState(0);
   const [isTimerRunning, setIsTimerRunning] = useState(false);
+  const [timerBaseSeconds, setTimerBaseSeconds] = useState(0);
+  const [timerStartedAtMs, setTimerStartedAtMs] = useState<number | null>(null);
+  const [timerSeconds, setTimerSeconds] = useState(0);
   const [result, setResult] = useState<JudgeResult | RunResult | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [running, setRunning] = useState(false);
@@ -438,6 +448,82 @@ export default function ActivityPage() {
     setActiveFilename(primaryFilename);
   }
 
+  function timerStorageKey(problemId: string): string {
+    return `codem-activity-timer:v1:${activityId}:${problemId}`;
+  }
+
+  function computeTimerSeconds(nowMs: number): number {
+    if (!isTimerRunning || timerStartedAtMs == null) return timerBaseSeconds;
+    const elapsed = Math.max(0, Math.floor((nowMs - timerStartedAtMs) / 1000));
+    return timerMode === "countdown"
+      ? Math.max(0, timerBaseSeconds - elapsed)
+      : timerBaseSeconds + elapsed;
+  }
+
+  function persistTimer(problemId: string, next: PersistedTimerStateV1) {
+    try {
+      localStorage.setItem(timerStorageKey(problemId), JSON.stringify(next));
+    } catch {
+      // ignore
+    }
+  }
+
+  function loadOrStartTimer(problemId: string, limitSeconds: number | null, mode: "countup" | "countdown") {
+    const now = Date.now();
+    const key = timerStorageKey(problemId);
+
+    let stored: PersistedTimerStateV1 | null = null;
+    try {
+      const raw = localStorage.getItem(key);
+      if (raw) stored = JSON.parse(raw);
+    } catch {
+      stored = null;
+    }
+
+    const valid =
+      stored &&
+      stored.v === 1 &&
+      (stored.mode === "countup" || stored.mode === "countdown") &&
+      (typeof stored.baseSeconds === "number" && Number.isFinite(stored.baseSeconds)) &&
+      (stored.startedAtMs == null || (typeof stored.startedAtMs === "number" && Number.isFinite(stored.startedAtMs))) &&
+      (stored.limitSeconds == null || (typeof stored.limitSeconds === "number" && Number.isFinite(stored.limitSeconds))) &&
+      stored.mode === mode &&
+      (stored.limitSeconds ?? null) === (limitSeconds ?? null);
+
+    const nextBaseSeconds =
+      valid && typeof stored!.baseSeconds === "number"
+        ? Math.max(0, Math.trunc(stored!.baseSeconds))
+        : mode === "countdown" && typeof limitSeconds === "number" && limitSeconds > 0
+          ? limitSeconds
+          : 0;
+
+    const nextStartedAtMs =
+      valid && typeof stored!.startedAtMs === "number" ? Math.trunc(stored!.startedAtMs) : now;
+
+    setTimerMode(mode);
+    setTimeLimitSeconds(limitSeconds);
+    setTimerBaseSeconds(nextBaseSeconds);
+    setTimerStartedAtMs(nextStartedAtMs);
+    setIsTimerRunning(true);
+
+    // Sync display immediately and clamp countdown-at-zero.
+    const computed = (() => {
+      const elapsed = Math.max(0, Math.floor((now - nextStartedAtMs) / 1000));
+      return mode === "countdown" ? Math.max(0, nextBaseSeconds - elapsed) : nextBaseSeconds + elapsed;
+    })();
+    setTimerSeconds(computed);
+
+    if (mode === "countdown" && computed <= 0) {
+      setIsTimerRunning(false);
+      setTimerBaseSeconds(0);
+      setTimerStartedAtMs(null);
+      persistTimer(problemId, { v: 1, mode, limitSeconds, baseSeconds: 0, startedAtMs: null });
+      return;
+    }
+
+    persistTimer(problemId, { v: 1, mode, limitSeconds, baseSeconds: nextBaseSeconds, startedAtMs: nextStartedAtMs });
+  }
+
   useEffect(() => {
 
     async function load() {
@@ -468,16 +554,16 @@ export default function ActivityPage() {
           }
 
           const limit = typeof act.timeLimitSeconds === "number" ? act.timeLimitSeconds : null;
-          if (typeof limit === "number" && limit > 0) {
-            setTimeLimitSeconds(limit);
-            setTimerMode("countdown");
-            setTimerSeconds(limit);
+          const mode: "countup" | "countdown" = typeof limit === "number" && limit > 0 ? "countdown" : "countup";
+          if (act.problems.length > 0) {
+            loadOrStartTimer(act.problems[0]!.id, limit, mode);
           } else {
-            setTimeLimitSeconds(null);
-            setTimerMode("countup");
+            setTimeLimitSeconds(limit);
+            setTimerMode(mode);
+            setTimerBaseSeconds(0);
             setTimerSeconds(0);
+            setIsTimerRunning(false);
           }
-          setIsTimerRunning(true);
         }
       } catch (e) {
         console.error(e);
@@ -491,17 +577,29 @@ export default function ActivityPage() {
 
   useEffect(() => {
     if (!isTimerRunning) return;
-    const id = setInterval(() => {
-      setTimerSeconds((s) => (timerMode === "countdown" ? Math.max(0, s - 1) : s + 1));
-    }, 1000);
-    return () => clearInterval(id);
-  }, [isTimerRunning, timerMode]);
-
-  useEffect(() => {
-    if (timerMode !== "countdown") return;
-    if (timerSeconds > 0) return;
-    setIsTimerRunning(false);
-  }, [timerMode, timerSeconds]);
+    const tick = () => {
+      const now = Date.now();
+      const next = computeTimerSeconds(now);
+      setTimerSeconds(next);
+      if (timerMode === "countdown" && next <= 0) {
+        setIsTimerRunning(false);
+        setTimerBaseSeconds(0);
+        setTimerStartedAtMs(null);
+        if (selectedProblemId) {
+          persistTimer(selectedProblemId, {
+            v: 1,
+            mode: "countdown",
+            limitSeconds: timeLimitSeconds ?? null,
+            baseSeconds: 0,
+            startedAtMs: null,
+          });
+        }
+      }
+    };
+    tick();
+    const id = window.setInterval(tick, 500);
+    return () => window.clearInterval(id);
+  }, [isTimerRunning, timerMode, timerStartedAtMs, timerBaseSeconds, selectedProblemId, timeLimitSeconds]);
 
   const selectedProblem = activity?.problems.find(
     (p) => p.id === selectedProblemId
@@ -863,8 +961,9 @@ export default function ActivityPage() {
                     loadProblemIntoWorkspace(p);
                     setResult(null);
                     setShowTests(false);
-                    setTimerSeconds(timerMode === "countdown" ? (timeLimitSeconds ?? 0) : 0);
-                    setIsTimerRunning(true);
+                    const limit = typeof timeLimitSeconds === "number" ? timeLimitSeconds : null;
+                    const mode: "countup" | "countdown" = typeof limit === "number" && limit > 0 ? "countdown" : "countup";
+                    loadOrStartTimer(p.id, limit, mode);
                   }}
                   className={`flex flex-col rounded-xl border px-3 py-2 text-left text-sm transition ${
                     selectedProblemId === p.id
