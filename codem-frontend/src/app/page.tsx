@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Moon, Sun } from "lucide-react";
+import { History as HistoryIcon, Moon, Sun, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useSpecBuilderUX } from "@/lib/specBuilderUx";
@@ -293,6 +293,17 @@ export default function Home() {
       cleanupStreams();
     };
   }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!historyOpen) return;
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setHistoryOpen(false);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [historyOpen]);
 
   const toggleDarkMode = () => {
     const newMode = !darkMode;
@@ -827,113 +838,24 @@ export default function Home() {
               Community
             </Link>
             {user && (
-              <div className="relative">
-                <button
-                  onClick={() => {
-                    const next = !historyOpen;
-                    setHistoryOpen(next);
-                    if (next) void fetchSessionHistory();
-                  }}
-                  className={`rounded-full px-4 py-2 text-sm font-medium transition ${
-                    darkMode
-                      ? "bg-slate-800 text-slate-300 hover:bg-slate-700"
-                      : "border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
-                  }`}
-                >
-                  History
-                </button>
-                {historyOpen && (
-                  <div
-                    className={`absolute right-0 z-20 mt-2 w-[360px] overflow-hidden rounded-2xl border shadow-lg ${
-                      darkMode ? "border-slate-700 bg-slate-900" : "border-slate-200 bg-white"
-                    }`}
-                  >
-                    <div className={`flex items-center justify-between border-b px-4 py-3 ${darkMode ? "border-slate-700" : "border-slate-200"}`}>
-                      <div className={`text-sm font-semibold ${darkMode ? "text-slate-100" : "text-slate-900"}`}>Past chats</div>
-                      <button
-                        onClick={() => setHistoryOpen(false)}
-                        className={`rounded-lg px-2 py-1 text-xs transition ${
-                          darkMode ? "text-slate-300 hover:bg-slate-800" : "text-slate-600 hover:bg-slate-100"
-                        }`}
-                      >
-                        Close
-                      </button>
-                    </div>
-
-                    <div className="px-4 py-3">
-                      <button
-                        onClick={() => {
-                          setHistoryOpen(false);
-                          void startNewSession(learningMode);
-                        }}
-                        className={`w-full rounded-xl px-3 py-2 text-left text-sm font-medium transition ${
-                          darkMode ? "bg-slate-800 text-slate-100 hover:bg-slate-700" : "bg-slate-100 text-slate-900 hover:bg-slate-200"
-                        }`}
-                      >
-                        New chat
-                      </button>
-
-                      {historyLoading && (
-                        <div className={`mt-3 text-xs ${darkMode ? "text-slate-400" : "text-slate-500"}`}>
-                          Loading…
-                        </div>
-                      )}
-                      {historyError && (
-                        <div className={`mt-3 rounded-lg px-3 py-2 text-xs ${darkMode ? "bg-rose-900/30 text-rose-200" : "bg-rose-50 text-rose-900"}`}>
-                          {historyError}
-                        </div>
-                      )}
-
-                      {!historyLoading && !historyError && (
-                        <div className="mt-3 max-h-[360px] space-y-2 overflow-y-auto">
-                          {sessionHistory.length === 0 && (
-                            <div className={`rounded-xl border px-3 py-3 text-xs ${darkMode ? "border-slate-700 text-slate-400" : "border-slate-200 text-slate-500"}`}>
-                              No saved chats yet. Start a chat while logged in and it will show up here.
-                            </div>
-                          )}
-                          {sessionHistory.map((s) => {
-                            const when = s.last_message_at || s.updated_at;
-                            const whenText = when ? new Date(when).toLocaleDateString() : "";
-                            const preview =
-                              (typeof s.last_message === "string" && s.last_message.trim()
-                                ? s.last_message
-                                : `Session ${s.id.slice(0, 8)}…`) as string;
-                            return (
-                              <button
-                                key={s.id}
-                                onClick={() => {
-                                  setHistoryOpen(false);
-                                  void loadSession(s.id);
-                                }}
-                                className={`w-full rounded-xl border px-3 py-2 text-left transition ${
-                                  darkMode
-                                    ? "border-slate-700 hover:bg-slate-800"
-                                    : "border-slate-200 hover:bg-slate-50"
-                                }`}
-                              >
-                                <div className="flex items-center justify-between gap-2">
-                                  <div className={`text-xs font-semibold ${darkMode ? "text-slate-100" : "text-slate-900"}`}>
-                                    {s.learning_mode === "guided" ? "Guided" : "Practice"} • {s.state}
-                                  </div>
-                                  <div className={`text-[11px] ${darkMode ? "text-slate-400" : "text-slate-500"}`}>
-                                    {whenText}
-                                  </div>
-                                </div>
-                                <div className={`mt-1 truncate text-xs ${darkMode ? "text-slate-300" : "text-slate-700"}`}>
-                                  {preview}
-                                </div>
-                                <div className={`mt-1 text-[11px] ${darkMode ? "text-slate-500" : "text-slate-500"}`}>
-                                  {s.message_count} messages
-                                </div>
-                              </button>
-                            );
-                          })}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )}
-              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  const next = !historyOpen;
+                  setHistoryOpen(next);
+                  if (next) void fetchSessionHistory();
+                }}
+                className={`inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-medium transition ${
+                  darkMode
+                    ? "bg-slate-800 text-slate-300 hover:bg-slate-700"
+                    : "border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+                }`}
+                aria-haspopup="dialog"
+                aria-expanded={historyOpen}
+              >
+                <HistoryIcon className="h-4 w-4" />
+                History
+              </button>
             )}
             <button
               onClick={toggleDarkMode}
@@ -1250,6 +1172,115 @@ export default function Home() {
             </div>
           </section>
         </main>
+
+        {user && historyOpen && (
+          <div className="fixed inset-0 z-50">
+            <div
+              className="absolute inset-0 bg-black/50"
+              onClick={() => setHistoryOpen(false)}
+              aria-hidden="true"
+            />
+            <div
+              className={`absolute right-0 top-0 h-full w-full max-w-[420px] overflow-hidden border-l shadow-2xl ${
+                darkMode ? "border-slate-800 bg-slate-950 text-slate-50" : "border-slate-200 bg-white text-slate-900"
+              }`}
+              role="dialog"
+              aria-label="Chat history"
+              aria-modal="true"
+            >
+              <div className={`flex items-center justify-between border-b px-4 py-4 ${darkMode ? "border-slate-800" : "border-slate-200"}`}>
+                <div className="flex items-center gap-2">
+                  <HistoryIcon className={`h-4 w-4 ${darkMode ? "text-slate-200" : "text-slate-700"}`} />
+                  <div className={`text-sm font-semibold ${darkMode ? "text-slate-100" : "text-slate-900"}`}>Past chats</div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setHistoryOpen(false)}
+                  className={`rounded-full border p-2 transition ${
+                    darkMode ? "border-slate-800 bg-slate-900/60 text-slate-200 hover:bg-slate-800" : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                  }`}
+                  aria-label="Close history"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+
+              <div className="h-full overflow-y-auto px-4 py-4">
+                <button
+                  onClick={() => {
+                    setHistoryOpen(false);
+                    void startNewSession(learningMode);
+                  }}
+                  className={`w-full rounded-2xl px-4 py-3 text-left text-sm font-semibold transition ${
+                    darkMode ? "bg-slate-900 text-slate-100 hover:bg-slate-800" : "bg-slate-900 text-white hover:bg-slate-800"
+                  }`}
+                >
+                  New chat
+                </button>
+
+                {historyLoading && (
+                  <div className={`mt-4 text-xs ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Loading…</div>
+                )}
+                {historyError && (
+                  <div
+                    className={`mt-4 rounded-2xl border px-4 py-3 text-xs ${
+                      darkMode ? "border-rose-900/40 bg-rose-900/20 text-rose-200" : "border-rose-200 bg-rose-50 text-rose-900"
+                    }`}
+                  >
+                    {historyError}
+                  </div>
+                )}
+
+                {!historyLoading && !historyError && (
+                  <div className="mt-4 space-y-2">
+                    {sessionHistory.length === 0 && (
+                      <div
+                        className={`rounded-2xl border px-4 py-4 text-xs ${
+                          darkMode ? "border-slate-800 text-slate-400" : "border-slate-200 text-slate-600"
+                        }`}
+                      >
+                        No saved chats yet. Start a chat while logged in and it will show up here.
+                      </div>
+                    )}
+                    {sessionHistory.map((s) => {
+                      const when = s.last_message_at || s.updated_at;
+                      const whenText = when ? new Date(when).toLocaleDateString() : "";
+                      const preview =
+                        (typeof s.last_message === "string" && s.last_message.trim()
+                          ? s.last_message
+                          : `Session ${s.id.slice(0, 8)}…`) as string;
+                      return (
+                        <button
+                          key={s.id}
+                          onClick={() => {
+                            setHistoryOpen(false);
+                            void loadSession(s.id);
+                          }}
+                          className={`w-full rounded-2xl border px-4 py-3 text-left transition ${
+                            darkMode ? "border-slate-800 hover:bg-slate-900/60" : "border-slate-200 hover:bg-slate-50"
+                          }`}
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <div className={`text-xs font-semibold ${darkMode ? "text-slate-100" : "text-slate-900"}`}>
+                              {s.learning_mode === "guided" ? "Guided" : "Practice"} • {s.state}
+                            </div>
+                            <div className={`text-[11px] ${darkMode ? "text-slate-400" : "text-slate-500"}`}>{whenText}</div>
+                          </div>
+                          <div className={`mt-1 truncate text-xs ${darkMode ? "text-slate-300" : "text-slate-700"}`}>
+                            {preview}
+                          </div>
+                          <div className={`mt-1 text-[11px] ${darkMode ? "text-slate-500" : "text-slate-500"}`}>
+                            {s.message_count} messages
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
