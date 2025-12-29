@@ -815,6 +815,16 @@ export default function Home() {
                 );
               })}
             </div>
+            <Link
+              href="/community"
+              className={`rounded-full border px-4 py-2 text-sm font-semibold transition ${
+                darkMode
+                  ? "border-slate-800 bg-slate-900/60 text-slate-200 hover:bg-slate-800"
+                  : "border-slate-200 bg-white/80 text-slate-700 hover:bg-slate-100"
+              }`}
+            >
+              Community
+            </Link>
             {user && (
               <div className="relative">
                 <button
