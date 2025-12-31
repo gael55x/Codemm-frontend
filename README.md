@@ -1,4 +1,7 @@
-# Codemm
+<div align="center">
+  <h1>Codemm</h1>
+  <p>Turns a short chat into verified programming activities (problems + tests) and grades solutions in Docker sandboxes.</p>
+</div>
 
 ## Project Overview
 
