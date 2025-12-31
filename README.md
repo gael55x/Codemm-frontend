@@ -1,71 +1,57 @@
-# Codemm
+# Codem Frontend
 
-Codemm is an open-source AI agent that turns a short chat into a fully-verified programming activity (problems + tests), and provides Docker-sandboxed `run`/`submit` for execution and grading.
+## Project Overview
 
-Frontend repo (this): https://github.com/gael55x/Codem-frontend  
-Backend repo: https://github.com/gael55x/Codem-backend
+Codem Frontend is the Next.js web UI for Codem: a deterministic, agentic system that turns a short chat into verified programming activities (problems + tests) and lets learners run/submit code against the backend judge.
 
-## What you get
+- Repo: `Codem-frontend` (this repository)
+- Backend: `https://github.com/gael55x/Codem-backend`
 
-- **SpecBuilder chat**: deterministic agent loop that turns chat → `ActivitySpec`
-- **Generation pipeline**: LLM drafts → contract validation → Docker verification → persist (reference artifacts discarded)
-- **Solver UI**: in-browser editor + `run`/`submit` against the backend judge
-- **Community feed** (`/community`), **auth**, and **profile**
+## High-Level Architecture
 
-## Supported languages
+The frontend is a thin client over a backend-driven workflow:
 
-The backend ships Docker judge images for: Java, Python, C++, SQL.
+- **Next.js App Router UI** renders the chat, activity viewer/editor, and account pages.
+- **HTTP + SSE integration** calls backend APIs for sessions, generation, activities, and judging.
+- **No hidden logic**: all agent “decisions” (validation, state transitions, retries, confirmation gating) live in the backend; the frontend is responsible for UX and for faithfully rendering server state and progress.
 
-## Local development (recommended)
+## Core Responsibilities
 
-Prereqs: Node.js 18+, npm, Docker Desktop (or a running Docker daemon).
+- Sessions UX: create session, send user messages, render `nextQuestion` / `questionKey`, and display the evolving `spec`.
+- Generation UX: open `GET /sessions/:id/generate/stream` and render structured progress events.
+- Activity UX: fetch activities, render problems, run code (`POST /run`) and submit graded solutions (`POST /submit`).
+- Account UX: auth, profile, and per-user LLM key settings (encrypted at rest by the backend when enabled).
+- Community UX: list and view community-published activities.
 
-1) Start the backend:
+## Getting Oriented
+
+**Repo layout**
+
+- `src/app` – Next.js routes (chat, activity solving, auth, profile, community)
+- `src/components` – UI components used across routes
+- `src/lib` – client-side helpers and normalization
+- `src/types` – frontend-facing types for API payloads/events
+
+**Local development**
+
+Prereqs: Node.js 18+, npm. For end-to-end flows you also need the backend running (and Docker for the backend judge).
 
 ```bash
-git clone https://github.com/gael55x/Codem-backend.git
-cd Codem-backend
-cp .env.example .env
-# set JWT_SECRET and one LLM API key in .env (CODEX_API_KEY/OPENAI_API_KEY, ANTHROPIC_API_KEY, or GEMINI_API_KEY/GOOGLE_API_KEY)
-./run-codem-backend.sh
-```
-
-2) Start the frontend (new terminal):
-
-```bash
-git clone https://github.com/gael55x/Codem-frontend.git
-cd Codem-frontend/codem-frontend
-cp .env.local.example .env
 npm install
 npm run dev
 ```
 
-Open `http://localhost:3000`.
+Configure backend URL via `.env`:
 
-## Configuration
+- `NEXT_PUBLIC_BACKEND_URL` (defaults to `http://localhost:4000` in code)
 
-Frontend env lives in `codem-frontend/.env` (or `codem-frontend/.env.local`).
+## Documentation Index
 
-- `NEXT_PUBLIC_BACKEND_URL`: backend base URL (default fallback in code: `http://localhost:4000`)
+- Start here: `docs/index.md`
+- Frontend ↔ backend integration: `docs/api/backend.md`
+- Frontend architecture & state: `docs/architecture.md`, `docs/state-and-models.md`
+- Debugging SSE progress/trace: `docs/debugging.md`
 
-Backend env lives in the backend repo’s `.env` (see `Codem-backend/.env.example`).
+## Contributing
 
-## Scripts (frontend)
-
-Run these inside `codem-frontend/`:
-
-- `npm run dev` – local dev server
-- `npm run build` – production build
-- `npm run start` – serve production build
-- `npm run lint` – run ESLint
-
-## Repo layout (frontend)
-
-- `codem-frontend/src/app` – Next.js App Router pages/routes
-- `codem-frontend/src/components` – shared UI components
-- `codem-frontend/src/lib` – frontend utilities (API helpers, UX helpers)
-
-## Security notes
-
-- `/run` and `/submit` execute untrusted code; do not expose the backend publicly without additional hardening.
-- Tracing/progress streams are sanitized to omit prompts, raw generations, and reference artifacts.
+See `docs/contributing.md` for development workflow, conventions, and how to keep frontend behavior aligned with backend contracts.
