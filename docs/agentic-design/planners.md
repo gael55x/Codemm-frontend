@@ -1,6 +1,6 @@
 # Planners (Frontend Implications)
 
-Planning in Codem is backend-driven and deterministic. The frontend should understand planning only insofar as it affects UX and contracts.
+Planning in Codemm is backend-driven and deterministic. The frontend should understand planning only insofar as it affects UX and contracts.
 
 ## Planner vs executor boundary
 
@@ -26,4 +26,3 @@ Because planning is deterministic:
 - progress events can be reliably keyed by `slotIndex`
 
 This is why progress UI should be built around indices and event types, not around parsing descriptions.
-

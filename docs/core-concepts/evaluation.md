@@ -1,6 +1,6 @@
 # Evaluation (Frontend)
 
-Codem evaluates correctness in the backend. The frontend renders evaluation outputs.
+Codemm evaluates correctness in the backend. The frontend renders evaluation outputs.
 
 ## Generation evaluation
 
@@ -33,4 +33,3 @@ Frontend implication:
 
 - do not conflate `/run` output with correctness
 - keep `/submit` as the canonical “grade me” action
-

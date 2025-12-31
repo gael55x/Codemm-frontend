@@ -1,6 +1,6 @@
 # Agentic Design (Frontend Perspective)
 
-This section explains why Codem is designed as an agentic system and what that implies for the frontend.
+This section explains why Codemm is designed as an agentic system and what that implies for the frontend.
 
 The backend implements the agent loop and invariants. The frontend implements UX over the backend’s contracts.
 
@@ -28,4 +28,3 @@ Even as a thin client, the frontend must correctly reflect agentic system behavi
 - Memory and state (what clients should render): `memory-and-state.md`
 - Guardrails and validation (what clients should not assume): `guardrails-and-validation.md`
 - Failure modes (what the UI should handle): `failure-modes.md`
-

@@ -1,6 +1,6 @@
 # Tools and Actions (Client Surface)
 
-From the frontend perspective, Codem’s “tools” show up as backend APIs and streams. This document describes the contract boundaries the UI must respect.
+From the frontend perspective, Codemm’s “tools” show up as backend APIs and streams. This document describes the contract boundaries the UI must respect.
 
 ## Tool: Sessions API
 
@@ -54,4 +54,3 @@ Rules:
 
 - include bearer tokens only on endpoints that require them
 - treat `/profile/llm` errors as configuration-dependent (backend may not be configured for encrypted storage)
-

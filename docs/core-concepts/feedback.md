@@ -1,6 +1,6 @@
 # Feedback (Frontend)
 
-In Codem, “feedback” refers to deterministic signals captured by the backend (e.g., submission outcomes) that may influence Guided Mode planning.
+In Codemm, “feedback” refers to deterministic signals captured by the backend (e.g., submission outcomes) that may influence Guided Mode planning.
 
 Frontend responsibilities:
 
@@ -11,4 +11,3 @@ What the frontend should not do:
 
 - do not implement a client-side learner model
 - do not infer mastery from local run results; rely on backend persisted data
-

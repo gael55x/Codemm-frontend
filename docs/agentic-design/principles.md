@@ -1,6 +1,6 @@
 # Principles (Client-Relevant)
 
-Codem’s agentic behavior is anchored in backend invariants. The frontend must respect these invariants or it will create confusing UX.
+Codemm’s agentic behavior is anchored in backend invariants. The frontend must respect these invariants or it will create confusing UX.
 
 ## 1) Backend is the source of truth
 
@@ -34,4 +34,3 @@ The frontend should not present “generated problems” as final until:
 ## 4) Observability is safe by design
 
 Progress events are designed to be safe for user display. The frontend should not demand (or expect) raw prompts or reference solutions.
-

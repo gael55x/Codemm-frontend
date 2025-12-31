@@ -1,4 +1,4 @@
-# Codem Frontend Documentation
+# Codemm Frontend Documentation
 
 This documentation is written for contributors and power users who need a stable reference for how the frontend integrates with the backend’s agentic workflow.
 
@@ -24,3 +24,6 @@ The frontend is intentionally a **thin client**:
 - Core concepts (difficulty, evaluation, feedback): `core-concepts/index.md`
 - Pipelines (generation, grading, feedback loops): `pipelines/index.md`
 
+## Documentation Assets
+
+- Screenshots used by `README.md` and `docs/**/*.md` live in `../images/` (see `../images/README.md`).

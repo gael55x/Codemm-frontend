@@ -1,6 +1,7 @@
 <div align="center">
   <h1>Codemm</h1>
   <p>Codemm is an AI agent that turns a short chat into verified programming activities (problems + tests) and grades solutions in Docker sandboxes.</p>
+  <img src="./images/Codemm-home.png" alt="Codemm homepage" width="900" />
 </div>
 
 ## Project Overview
@@ -92,6 +93,15 @@ Configure backend URL via `.env`:
 - Docs home: `https://github.com/gael55x/Codem-backend/tree/main/docs`
 - Agentic design invariants: `https://github.com/gael55x/Codem-backend/tree/main/docs/agentic-design`
 - Backend API reference: `https://github.com/gael55x/Codem-backend/blob/main/docs/api/backend.md`
+
+## Images (Screenshots for Docs)
+
+This repository’s documentation screenshots live in `images/` and are referenced by `README.md` and `docs/**/*.md`.
+
+Examples:
+
+- ![Codemm home](./images/Codemm-home.png)
+- ![Codemm generating activity](./images/Codemm-generating-activity.png)
 
 ## Contributing
 

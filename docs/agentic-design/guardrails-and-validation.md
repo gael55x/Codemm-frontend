@@ -1,6 +1,6 @@
 # Guardrails and Validation (Client Implications)
 
-Codem’s backend implements most guardrails. The frontend’s responsibility is to **not bypass** those guardrails and to handle guardrail-triggered errors predictably.
+Codemm’s backend implements most guardrails. The frontend’s responsibility is to **not bypass** those guardrails and to handle guardrail-triggered errors predictably.
 
 ## What the backend validates
 
@@ -31,4 +31,3 @@ Client errors should be treated as:
 SSE errors should not crash the UI: treat disconnects as recoverable and reconnect when appropriate.
 
 See `../error-handling.md`.
-

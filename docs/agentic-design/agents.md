@@ -1,6 +1,6 @@
 # Agents (Session UX)
 
-The “agent” in Codem is the backend session loop that turns user chat into a validated spec. The frontend’s job is to render that loop without inventing behavior.
+The “agent” in Codemm is the backend session loop that turns user chat into a validated spec. The frontend’s job is to render that loop without inventing behavior.
 
 ## Agent lifecycle (what the UI sees)
 
@@ -33,4 +33,3 @@ UI implication:
 - reflect that behavior without trying to override it client-side
 
 See `memory-and-state.md` and `failure-modes.md`.
-

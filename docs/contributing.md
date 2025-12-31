@@ -1,6 +1,6 @@
 # Contributing
 
-This guide is for contributors working on Codem Frontend.
+This guide is for contributors working on Codemm Frontend.
 
 ## Local setup
 
@@ -41,4 +41,3 @@ If you change frontend integration behavior (API calls, SSE handling, auth token
 - `docs/api/backend.md`
 - `docs/data-flow.md`
 - `docs/error-handling.md`
-

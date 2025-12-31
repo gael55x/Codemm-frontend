@@ -1,6 +1,6 @@
 # Architecture
 
-Codem Frontend is a Next.js App Router application that renders backend-driven state and workflows.
+Codemm Frontend is a Next.js App Router application that renders backend-driven state and workflows.
 
 ## Key properties
 
@@ -43,4 +43,3 @@ See:
 
 - Data flow: `data-flow.md`
 - Backend API integration: `api/backend.md`
-

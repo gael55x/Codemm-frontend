@@ -1,6 +1,6 @@
 # Overview
 
-Codem Frontend is the Next.js UI for interacting with Codem’s backend:
+Codemm Frontend is the Next.js UI for interacting with Codemm’s backend:
 
 - create and continue sessions (the spec-building loop)
 - generate activities once a session is ready
@@ -34,4 +34,3 @@ If you are changing agent behavior, the canonical docs are in the backend repo:
 - `https://github.com/gael55x/Codem-backend` → `docs/agentic-design/index.md`
 
 The frontend docs describe how to consume the backend contracts safely and predictably.
-

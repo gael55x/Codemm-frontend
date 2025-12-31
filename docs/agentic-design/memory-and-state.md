@@ -1,6 +1,6 @@
 # Memory and State (Client View)
 
-Codem’s memory model is implemented in the backend, but it has direct UX implications. This document defines what the frontend should render (and what it should not assume).
+Codemm’s memory model is implemented in the backend, but it has direct UX implications. This document defines what the frontend should render (and what it should not assume).
 
 ## Short-term (turn-local) state
 
@@ -39,4 +39,3 @@ UI implication:
 
 - treat profile stats and activity lists as backend-derived
 - do not attempt to recompute stats client-side unless explicitly required
-
