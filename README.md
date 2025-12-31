@@ -26,7 +26,7 @@ Prereqs: Node.js 18+, npm, Docker Desktop (or a running Docker daemon).
 git clone https://github.com/gael55x/Codem-backend.git
 cd Codem-backend
 cp .env.example .env
-# set CODEX_API_KEY + JWT_SECRET in .env
+# set JWT_SECRET and one LLM API key in .env (CODEX_API_KEY/OPENAI_API_KEY, ANTHROPIC_API_KEY, or GEMINI_API_KEY/GOOGLE_API_KEY)
 ./run-codem-backend.sh
 ```
 
