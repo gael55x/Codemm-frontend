@@ -178,6 +178,16 @@ export default function ProfilePage() {
             >
               Logout
             </button>
+            <button
+              onClick={() => router.push("/settings/llm")}
+              className={`rounded-full border px-4 py-2 text-sm font-medium transition ${
+                darkMode
+                  ? "border-slate-700 bg-slate-900/40 text-slate-100 hover:bg-slate-800"
+                  : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+              }`}
+            >
+              LLM API Key
+            </button>
           </div>
         </header>
 
