@@ -1,11 +1,11 @@
 <div align="center">
   <h1>Codemm</h1>
-  <p>Turns a short chat into verified programming activities (problems + tests) and grades solutions in Docker sandboxes.</p>
+  <p>Codemm is an AI agent that turns a short chat into verified programming activities (problems + tests) and grades solutions in Docker sandboxes.</p>
 </div>
 
 ## Project Overview
 
-Codemm is an agentic system that turns a short chat into **verified programming activities** (problems + tests), then runs and grades untrusted code in a Docker sandbox.
+Codemm uses an LLM to propose specs and problem drafts, and deterministic backend code to validate, verify in Docker, and persist learner-facing artifacts.
 
 Core design goal: **determinism at the boundaries**.
 
